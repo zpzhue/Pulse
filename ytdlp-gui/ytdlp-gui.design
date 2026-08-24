@@ -1,0 +1,241 @@
+{
+  "data": [
+    {
+      "id": "page-dashboard",
+      "title": "主页",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724486400000,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-f76d8d9e",
+          "measuredAt": 1787552886663
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/dashboard.html",
+        "interactions": []
+      }
+    },
+    {
+      "id": "page-dashboard-purple",
+      "title": "主页 - 紫色主题",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724486400000,
+      "canvasData": {
+        "x": 480,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-1e37c087",
+          "measuredAt": 1787552886663
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/dashboard-purple.html",
+        "interactions": []
+      }
+    },
+    {
+      "id": "page-dashboard-green",
+      "title": "主页 - 绿色主题",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724486400000,
+      "canvasData": {
+        "x": 960,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-0aec682e",
+          "measuredAt": 1787552886663
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/dashboard-green.html",
+        "interactions": []
+      }
+    },
+    {
+      "id": "page-new-download",
+      "title": "新建下载",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724486400000,
+      "canvasData": {
+        "x": 1440,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-54c245c5",
+          "measuredAt": 1787552886663
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/new-download.html",
+        "interactions": []
+      }
+    },
+    {
+      "id": "page-history",
+      "title": "历史记录",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724486400000,
+      "canvasData": {
+        "x": 1920,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-281fa6ec",
+          "measuredAt": 1787552886663
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/history.html",
+        "interactions": []
+      }
+    },
+    {
+      "id": "page-settings",
+      "title": "设置",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724486400000,
+      "canvasData": {
+        "x": 2400,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-7f03ebaa",
+          "measuredAt": 1787552886663
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/settings.html",
+        "interactions": []
+      }
+    },
+    {
+      "id": "page-dashboard-light",
+      "title": "主页 - 亮色",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724486400000,
+      "canvasData": {
+        "x": 0,
+        "y": 373,
+        "group": 1,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-c4edf646",
+          "measuredAt": 1787552886663
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/dashboard-light.html",
+        "interactions": []
+      }
+    },
+    {
+      "id": "page-new-download-light",
+      "title": "新建下载 - 亮色",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724486400000,
+      "canvasData": {
+        "x": 480,
+        "y": 373,
+        "group": 1,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-58b4935f",
+          "measuredAt": 1787552886663
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/new-download-light.html",
+        "interactions": []
+      }
+    },
+    {
+      "id": "page-history-light",
+      "title": "历史记录 - 亮色",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724486400000,
+      "canvasData": {
+        "x": 960,
+        "y": 373,
+        "group": 1,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-b2d6b1e8",
+          "measuredAt": 1787552886663
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/history-light.html",
+        "interactions": []
+      }
+    },
+    {
+      "id": "page-settings-light",
+      "title": "设置 - 亮色",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724486400000,
+      "canvasData": {
+        "x": 1440,
+        "y": 373,
+        "group": 1,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-cd0edae8",
+          "measuredAt": 1787552886663
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/settings-light.html",
+        "interactions": []
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "desktop",
+    "projectName": "Pulse",
+    "designLibrary": null,
+    "visualEditorEnabled": false
+  }
+}

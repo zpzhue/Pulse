@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>播放列表 - 亮色</title>
+    <style id="theme-vars">
+/* ============================================================
+   Pulse - Brand CSS
+   Style: Dark Tech / Cyber-Cyan
+   Prefix: ydl
+   ============================================================ */
+
+/* ---- Design Tokens ---- */
+:root {
+  /* Brand Primary (single hue - cyan) */
+  --ydl-primary-hue: 188;
+  --ydl-primary-sat: 100%;
+  --ydl-primary-light: 44%;
+
+  /* Primary scale tints */
+  --ydl-primary-50: #e6fcff;
+  --ydl-primary-100: #b3f7ff;
+  --ydl-primary-200: #80f0ff;
+  --ydl-primary-300: #4de8ff;
+  --ydl-primary-400: #1adfff;
+  --ydl-primary-500: #00c9e0;
+  --ydl-primary-600: #00a3b8;
+  --ydl-primary-700: #007d8c;
+  --ydl-primary-800: #005760;
+  --ydl-primary-900: #003238;
+
+  /* Neutral scale (cool gray with slight blue tint) */
+  --ydl-neutral-50: #f4f5fa;
+  --ydl-neutral-100: #e5e7f0;
+  --ydl-neutral-200: #c8cad8;
+  --ydl-neutral-300: #a3a5b8;
+  --ydl-neutral-400: #7a7d95;
+  --ydl-neutral-500: #5a5d75;
+  --ydl-neutral-600: #43455a;
+  --ydl-neutral-700: #313346;
+  --ydl-neutral-800: #222435;
+  --ydl-neutral-900: #161825;
+  --ydl-neutral-950: #0b0b14;
+
+  /* State colors (semantic only, not brand) */
+  --state-success: #2ebe85;
+  --state-warning: #f5a623;
+  --state-error: #f56565;
+  --state-info: #4da3ff;
+
+  /* Radius scale (restrained) */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* Typography */
+  --font-sans: "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, "Noto Sans Mono", monospace;
+  --font-display: "Inter", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+
+  /* Shadows (static ≤ 0.05 alpha; floating may be deeper) */
+  --shadow-static: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 1px rgba(0, 0, 0, 0.03);
+  --shadow-float: 0 8px 24px -8px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 24px 60px -20px rgba(0, 0, 0, 0.6);
+
+  /* Spacing (8pt grid) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 80px;
+
+  /* ---- Semantic Aliases (Light mode baseline) ---- */
+  --ydl-background: var(--ydl-neutral-50);
+  --ydl-foreground: var(--ydl-neutral-900);
+  --ydl-card: #ffffff;
+  --ydl-card-foreground: var(--ydl-neutral-900);
+  --ydl-popover: #ffffff;
+  --ydl-popover-foreground: var(--ydl-neutral-900);
+  --ydl-primary: var(--ydl-primary-500);
+  --ydl-primary-foreground: #ffffff;
+  --ydl-muted: var(--ydl-neutral-100);
+  --ydl-muted-foreground: var(--ydl-neutral-500);
+  --ydl-border: var(--ydl-neutral-200);
+  --ydl-input: var(--ydl-neutral-200);
+  --ydl-ring: var(--ydl-primary-500);
+
+  --ydl-radius-small: var(--radius-sm);
+  --ydl-radius-medium: var(--radius-md);
+  --ydl-radius-large: var(--radius-lg);
+
+  /* Extended light surface tokens for layered depth */
+  --ydl-surface: #ffffff;
+  --ydl-surface-2: #f4f5fa;
+  --ydl-surface-3: #e5e7f0;
+  --ydl-link: #161825;
+  --ydl-link-2: #5a5d75;
+  --ydl-link-3: #7a7d95;
+  --ydl-line: #c8cad8;
+
+  /* Light-optimized shadows */
+  --shadow-static: 0 1px 2px rgba(0, 0, 0, 0.03), 0 1px 1px rgba(0, 0, 0, 0.02);
+  --shadow-float: 0 4px 16px -4px rgba(0, 0, 0, 0.08);
+  --shadow-overlay: 0 12px 40px -8px rgba(0, 0, 0, 0.12);
+}
+
+/* ---- Dark Mode (primary theme) ---- */
+.dark {
+  --ydl-background: #0b0b14;
+  --ydl-foreground: #e8eaf6;
+  --ydl-card: #13131e;
+  --ydl-card-foreground: #e8eaf6;
+  --ydl-popover: #1a1a2b;
+  --ydl-popover-foreground: #e8eaf6;
+  --ydl-primary: #00c9e0;
+  --ydl-primary-foreground: #0b0b14;
+  --ydl-muted: #1b1b2b;
+  --ydl-muted-foreground: #9090b0;
+  --ydl-border: #252538;
+  --ydl-input: #252538;
+  --ydl-ring: #00c9e0;
+
+  /* Extended dark surface tokens for layered depth */
+  --ydl-surface: #13131e;
+  --ydl-surface-2: #1b1b2b;
+  --ydl-surface-3: #252538;
+  --ydl-ink: #e8eaf6;
+  --ydl-ink-2: #9090b0;
+  --ydl-ink-3: #5a5d7a;
+  --ydl-line: #252538;
+}
+
+/* ---- Typography Classes ---- */
+.font-display { font-family: var(--font-display); }
+.font-sans { font-family: var(--font-sans); }
+.font-mono { font-family: var(--font-mono); }
+
+.text-display { font-size: clamp(32px, 4vw, 48px); line-height: 1.1; font-weight: 600; letter-spacing: -0.02em; }
+.text-h1 { font-size: clamp(24px, 3vw, 36px); line-height: 1.2; font-weight: 600; letter-spacing: -0.015em; }
+.text-h2 { font-size: clamp(20px, 2.2vw, 28px); line-height: 1.3; font-weight: 600; letter-spacing: -0.01em; }
+.text-h3 { font-size: 18px; line-height: 1.4; font-weight: 600; }
+.text-body { font-size: 14px; line-height: 1.6; font-weight: 400; }
+.text-body-sm { font-size: 13px; line-height: 1.55; font-weight: 400; }
+.text-caption { font-size: 12px; line-height: 1.5; font-weight: 400; }
+.text-mono { font-size: 13px; line-height: 1.5; font-weight: 500; font-family: var(--font-mono); }
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--ydl-background);
+    --color-foreground: var(--ydl-foreground);
+    --color-card: var(--ydl-card);
+    --color-card-foreground: var(--ydl-card-foreground);
+    --color-popover: var(--ydl-popover);
+    --color-popover-foreground: var(--ydl-popover-foreground);
+    --color-primary: var(--ydl-primary);
+    --color-primary-foreground: var(--ydl-primary-foreground);
+    --color-muted: var(--ydl-muted);
+    --color-muted-foreground: var(--ydl-muted-foreground);
+    --color-border: var(--ydl-border);
+    --color-input: var(--ydl-input);
+    --color-ring: var(--ydl-ring);
+    --radius-sm: var(--ydl-radius-small);
+    --radius-md: var(--ydl-radius-medium);
+    --radius-lg: var(--ydl-radius-large);
+  }
+  @layer base {
+    body { background: var(--ydl-background); color: var(--ydl-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--ydl-background); }
+      .text-background { color: var(--ydl-background); }
+      .border-background { border-color: var(--ydl-background); }
+      .ring-background { --tw-ring-color: var(--ydl-background); }
+      .bg-foreground { background-color: var(--ydl-foreground); }
+      .text-foreground { color: var(--ydl-foreground); }
+      .border-foreground { border-color: var(--ydl-foreground); }
+      .ring-foreground { --tw-ring-color: var(--ydl-foreground); }
+      .bg-card { background-color: var(--ydl-card); }
+      .text-card { color: var(--ydl-card); }
+      .border-card { border-color: var(--ydl-card); }
+      .ring-card { --tw-ring-color: var(--ydl-card); }
+      .bg-card-foreground { background-color: var(--ydl-card-foreground); }
+      .text-card-foreground { color: var(--ydl-card-foreground); }
+      .border-card-foreground { border-color: var(--ydl-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--ydl-card-foreground); }
+      .bg-popover { background-color: var(--ydl-popover); }
+      .text-popover { color: var(--ydl-popover); }
+      .border-popover { border-color: var(--ydl-popover); }
+      .ring-popover { --tw-ring-color: var(--ydl-popover); }
+      .bg-popover-foreground { background-color: var(--ydl-popover-foreground); }
+      .text-popover-foreground { color: var(--ydl-popover-foreground); }
+      .border-popover-foreground { border-color: var(--ydl-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--ydl-popover-foreground); }
+      .bg-primary { background-color: var(--ydl-primary); }
+      .text-primary { color: var(--ydl-primary); }
+      .border-primary { border-color: var(--ydl-primary); }
+      .ring-primary { --tw-ring-color: var(--ydl-primary); }
+      .bg-primary-foreground { background-color: var(--ydl-primary-foreground); }
+      .text-primary-foreground { color: var(--ydl-primary-foreground); }
+      .border-primary-foreground { border-color: var(--ydl-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--ydl-primary-foreground); }
+      .bg-muted { background-color: var(--ydl-muted); }
+      .text-muted { color: var(--ydl-muted); }
+      .border-muted { border-color: var(--ydl-muted); }
+      .ring-muted { --tw-ring-color: var(--ydl-muted); }
+      .bg-muted-foreground { background-color: var(--ydl-muted-foreground); }
+      .text-muted-foreground { color: var(--ydl-muted-foreground); }
+      .border-muted-foreground { border-color: var(--ydl-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--ydl-muted-foreground); }
+      .bg-border { background-color: var(--ydl-border); }
+      .text-border { color: var(--ydl-border); }
+      .border-border { border-color: var(--ydl-border); }
+      .ring-border { --tw-ring-color: var(--ydl-border); }
+      .bg-input { background-color: var(--ydl-input); }
+      .text-input { color: var(--ydl-input); }
+      .border-input { border-color: var(--ydl-input); }
+      .ring-input { --tw-ring-color: var(--ydl-input); }
+      .bg-ring { background-color: var(--ydl-ring); }
+      .text-ring { color: var(--ydl-ring); }
+      .border-ring { border-color: var(--ydl-ring); }
+      .ring-ring { --tw-ring-color: var(--ydl-ring); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+    <style id="critical-layout">
+      /* ===== App Shell Frame (survives without Tailwind) ===== */
+      html, body { height: 100%; }
+      body { background: var(--ydl-background); color: var(--ydl-foreground); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+      .app-shell { display: flex; height: 100vh; overflow: hidden; }
+      .app-sidebar { width: 240px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--ydl-border); background: var(--ydl-card); }
+      .app-main-area { flex: 1 1 0%; display: flex; flex-direction: column; min-width: 0; }
+      .app-topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 56px; border-bottom: 1px solid var(--ydl-border); flex-shrink: 0; }
+      .app-content { flex: 1 1 0%; overflow-y: auto; padding: 24px; }
+
+      /* ===== Nav (single-emphasis active state via data-active slot) ===== */
+      .nav-item { color: var(--ydl-muted-foreground); text-decoration: none; transition: background-color 140ms cubic-bezier(.2,.8,.2,1), color 140ms cubic-bezier(.2,.8,.2,1); }
+      .nav-item:hover { background: var(--ydl-muted); color: var(--ydl-foreground); }
+      .nav-item[data-active="true"] { background: var(--ydl-muted); color: var(--ydl-foreground); }
+      .nav-item[data-active="true"] .nav-icon { color: var(--ydl-primary); }
+      .nav-item:focus-visible { outline: 2px solid var(--ydl-ring); outline-offset: 2px; }
+
+      /* ===== Custom Checkbox ===== */
+      .ydl-check { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border: 1.5px solid var(--ydl-border); border-radius: 4px; background: transparent; cursor: pointer; position: relative; flex-shrink: 0; margin: 0; transition: background-color 140ms cubic-bezier(.2,.8,.2,1), border-color 140ms cubic-bezier(.2,.8,.2,1); }
+      .ydl-check:hover { border-color: var(--ydl-primary); }
+      .ydl-check:checked { background: var(--ydl-primary); border-color: var(--ydl-primary); }
+      .ydl-check:checked::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid var(--ydl-primary-foreground); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+      .ydl-check:focus-visible { outline: 2px solid var(--ydl-ring); outline-offset: 2px; }
+
+      /* ===== Playlist Table ===== */
+      .pl-head, .pl-row { display: grid; grid-template-columns: 28px 28px 64px minmax(0,1fr) 60px 68px 52px 64px; align-items: center; gap: 12px; padding: 10px 14px; }
+      .pl-head { font-size: 12px; color: var(--ydl-muted-foreground); border-bottom: 1px solid var(--ydl-border); font-weight: 500; }
+      .pl-row { border-bottom: 1px solid var(--ydl-border); transition: background-color 120ms cubic-bezier(.2,.8,.2,1); }
+      .pl-row:last-child { border-bottom: none; }
+      .pl-row:hover { background: var(--ydl-muted); }
+      .pl-row[data-selected="true"] { background: color-mix(in srgb, var(--ydl-primary) 5%, transparent); box-shadow: inset 2px 0 0 var(--ydl-primary); }
+      .pl-row[data-selected="true"]:hover { background: color-mix(in srgb, var(--ydl-primary) 9%, transparent); }
+
+      /* ===== Sticky Batch Toolbar ===== */
+      .batch-bar { position: sticky; bottom: 0; z-index: 10; display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--ydl-card); border: 1px solid var(--ydl-border); border-radius: var(--radius-lg); }
+
+      /* ===== Buttons ===== */
+      .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: background-color 140ms cubic-bezier(.2,.8,.2,1), border-color 140ms cubic-bezier(.2,.8,.2,1), transform 140ms cubic-bezier(.2,.8,.2,1), color 140ms cubic-bezier(.2,.8,.2,1); }
+      .btn-primary { background: var(--ydl-primary); color: var(--ydl-primary-foreground); }
+      .btn-primary:hover { background: var(--ydl-primary-400); transform: translateY(-1px); }
+      .btn-primary:active { transform: translateY(0); }
+      .btn-outline { background: transparent; border-color: var(--ydl-border); color: var(--ydl-foreground); }
+      .btn-outline:hover { background: var(--ydl-muted); border-color: var(--ydl-muted-foreground); }
+      .btn:focus-visible { outline: 2px solid var(--ydl-ring); outline-offset: 2px; }
+
+      /* ===== Select wrapper ===== */
+      .select-wrap { position: relative; display: inline-flex; }
+      .ydl-select { appearance: none; -webkit-appearance: none; background: var(--ydl-muted); border: 1px solid var(--ydl-border); color: var(--ydl-foreground); font-size: 13px; padding: 7px 30px 7px 12px; border-radius: 8px; cursor: pointer; font-family: var(--font-sans); }
+      .ydl-select:hover { border-color: var(--ydl-muted-foreground); }
+      .ydl-select:focus-visible { outline: 2px solid var(--ydl-ring); outline-offset: 2px; }
+      .select-wrap .chev { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--ydl-muted-foreground); display: inline-flex; }
+
+      /* ===== URL input ===== */
+      .ydl-input { transition: border-color 140ms cubic-bezier(.2,.8,.2,1), box-shadow 140ms cubic-bezier(.2,.8,.2,1); }
+      .ydl-input:focus { outline: none; border-color: var(--ydl-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ydl-ring) 35%, transparent); }
+
+      /* ===== Tag ===== */
+      .ydl-tag { display: inline-flex; align-items: center; justify-content: center; padding: 2px 8px; border-radius: 4px; font-size: 12px; background: var(--ydl-muted); color: var(--ydl-muted-foreground); line-height: 1.4; }
+
+      /* ===== Thumbnail placeholder ===== */
+      .thumb { width: 64px; height: 40px; border-radius: 6px; background: var(--ydl-muted); display: flex; align-items: center; justify-content: center; color: var(--ydl-muted-foreground); flex-shrink: 0; }
+
+      /* ===== Meta pill ===== */
+      .meta-pill { display: inline-flex; align-items: center; gap: 6px; }
+
+      /* ===== Icon button (topbar) ===== */
+      .icon-btn { width: 32px; height: 32px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; color: var(--ydl-muted-foreground); border: none; background: transparent; cursor: pointer; transition: background-color 140ms cubic-bezier(.2,.8,.2,1), color 140ms cubic-bezier(.2,.8,.2,1); }
+      .icon-btn:hover { background: var(--ydl-muted); color: var(--ydl-foreground); }
+      .icon-btn:focus-visible { outline: 2px solid var(--ydl-ring); outline-offset: 2px; }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { transition-duration: 0.01ms !important; }
+      }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+    <!-- ===== App Shell (sidebar + topbar from project-shell.html) ===== -->
+    <div class="app-shell flex h-screen overflow-hidden bg-[var(--ydl-background)] text-[var(--ydl-foreground)]">
+
+      <!-- Left Sidebar -->
+      <aside class="app-sidebar w-[240px] shrink-0 flex flex-col border-r border-[var(--ydl-border)] bg-[var(--ydl-card)]">
+        <!-- Brand Logo -->
+        <div class="flex items-center gap-2.5 px-5 h-[56px] border-b border-[var(--ydl-border)]">
+          <div class="w-7 h-7 rounded-lg bg-[var(--ydl-primary)] flex items-center justify-center shrink-0">
+            <i data-lucide="download" class="w-4 h-4 text-[var(--ydl-primary-foreground)]"></i>
+          </div>
+          <span class="font-semibold text-[15px] text-[var(--ydl-foreground)]">Pulse</span>
+        </div>
+
+        <!-- Nav Items (active slot set on nav-playlist) -->
+        <nav class="flex-1 px-3 py-4 flex flex-col gap-1">
+          <a href="#" data-nav-key="dashboard" data-dom-id="nav-dashboard"
+             class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px]">
+            <i data-lucide="layout-dashboard" class="nav-icon w-[18px] h-[18px] shrink-0"></i>
+            <span>主页</span>
+          </a>
+          <a href="#" data-nav-key="new-download" data-dom-id="nav-new-download"
+             class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px]">
+            <i data-lucide="plus-circle" class="nav-icon w-[18px] h-[18px] shrink-0"></i>
+            <span>新建下载</span>
+          </a>          <a href="#" data-nav-key="history" data-dom-id="nav-history"
+             class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px]">
+            <i data-lucide="history" class="nav-icon w-[18px] h-[18px] shrink-0"></i>
+            <span>历史记录</span>
+          </a>
+          <a href="#" data-nav-key="settings" data-dom-id="nav-settings"
+             class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px]">
+            <i data-lucide="settings" class="nav-icon w-[18px] h-[18px] shrink-0"></i>
+            <span>设置</span>
+          </a>
+        </nav>
+      </aside>
+
+      <!-- Main Content Area -->
+      <div class="app-main-area flex-1 flex flex-col min-w-0">
+        <!-- Top Bar -->
+        <header class="app-topbar flex items-center justify-between px-6 h-[56px] border-b border-[var(--ydl-border)] shrink-0">
+          <div class="flex items-center gap-3">
+            <h1 class="text-[15px] font-semibold text-[var(--ydl-foreground)]">播放列表</h1>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="icon-btn" aria-label="搜索">
+              <i data-lucide="search" class="w-4 h-4"></i>
+            </button>
+            <button class="icon-btn" aria-label="通知">
+              <i data-lucide="bell" class="w-4 h-4"></i>
+            </button>
+            <div class="w-px h-5 bg-[var(--ydl-border)] mx-1"></div>
+            <button class="flex items-center gap-1.5 px-3 h-8 rounded-lg text-[13px] text-[var(--ydl-foreground)] bg-[var(--ydl-muted)] hover:bg-[var(--ydl-surface-2)] transition-colors">
+              <i data-lucide="palette" class="w-3.5 h-3.5"></i>
+              <span>主题</span>
+            </button>
+            <div class="w-px h-5 bg-[var(--ydl-border)] mx-1"></div>
+            <button class="topbar-btn w-8 h-8 rounded-lg flex items-center justify-center text-[var(--ydl-muted-foreground)] hover:bg-[var(--ydl-muted)] transition-colors" aria-label="切换至暗色模式" data-dom-id="mode-toggle">
+              <i data-lucide="moon" class="w-4 h-4"></i>
+            </button>
+
+          </div>
+        </header>
+
+        <!-- ===== Page Content (Playlist) ===== -->
+        <main class="app-content flex-1 overflow-y-auto p-6 flex flex-col gap-5">
+
+          <!-- 1. URL Input Bar -->
+          <section class="bg-[var(--ydl-card)] border border-[var(--ydl-border)] rounded-[var(--radius-lg)] p-4">
+            <div class="flex items-center gap-3 flex-wrap">
+              <div class="relative flex-1 min-w-[280px]">
+                <i data-lucide="link-2" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ydl-muted-foreground)] pointer-events-none"></i>
+                <input type="text" value="https://www.youtube.com/playlist?list=PLrFn9SKbK2RvTnQ8mZkLp3Hx..."
+                       placeholder="粘贴播放列表链接"
+                       data-dom-id="playlist-url-input"
+                       class="ydl-input w-full h-10 pl-9 pr-24 rounded-lg bg-[var(--ydl-muted)] border border-[var(--ydl-border)] text-[14px] text-[var(--ydl-foreground)] placeholder:text-[var(--ydl-muted-foreground)] font-mono">
+                <button data-dom-id="playlist-paste-btn" class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] text-[var(--ydl-muted-foreground)] hover:bg-[var(--ydl-surface-3)] hover:text-[var(--ydl-foreground)] transition-colors">
+                  <i data-lucide="clipboard-paste" class="w-3.5 h-3.5"></i>
+                  <span>粘贴</span>
+                </button>
+              </div>
+              <button data-dom-id="playlist-parse-btn" class="btn btn-primary h-10 px-5">
+                <i data-lucide="search" class="w-4 h-4"></i>
+                <span>解析</span>
+              </button>
+            </div>
+          </section>
+
+          <!-- 2. Playlist Info Bar -->
+          <section class="flex items-center justify-between gap-4 flex-wrap">
+            <div class="flex items-center gap-5 flex-wrap">
+              <h2 class="text-[18px] font-semibold text-[var(--ydl-foreground)]">Rust 编程系列教程</h2>
+              <div class="flex items-center gap-4 text-[13px] text-[var(--ydl-muted-foreground)]">
+                <span class="meta-pill"><i data-lucide="list-video" class="w-3.5 h-3.5"></i>12 个视频</span>
+                <span class="meta-pill font-mono"><i data-lucide="hard-drive" class="w-3.5 h-3.5"></i>约 4.2 GB</span>
+                <span class="meta-pill"><i data-lucide="user-circle" class="w-3.5 h-3.5"></i>Tech with Tim</span>
+              </div>
+            </div>
+            <button data-dom-id="playlist-select-all" class="text-[13px] text-[var(--ydl-primary)] hover:underline underline-offset-4 font-medium whitespace-nowrap">
+              全选 / 取消全选
+            </button>
+          </section>
+
+          <!-- 3. Playlist Item List -->
+          <section class="bg-[var(--ydl-card)] border border-[var(--ydl-border)] rounded-[var(--radius-lg)] overflow-hidden">
+            <!-- Header -->
+            <div class="pl-head">
+              <span></span>
+              <span>#</span>
+              <span>缩略图</span>
+              <span>标题</span>
+              <span>时长</span>
+              <span>大小</span>
+              <span>格式</span>
+              <span>状态</span>
+            </div>
+            <!-- Rows -->
+            <div>
+              <!-- Row 1 -->
+              <label class="pl-row cursor-pointer" data-selected="true">
+                <input type="checkbox" class="ydl-check" checked>
+                <span class="font-mono text-[12px] text-[var(--ydl-muted-foreground)]">01</span>
+                <div class="thumb"><i data-lucide="play" class="w-4 h-4"></i></div>
+                <span class="text-[14px] text-[var(--ydl-foreground)] truncate">Rust 基础语法</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">12:34</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">320 MB</span>
+                <span class="ydl-tag">MP4</span>
+                <span class="text-[12px] text-[var(--ydl-muted-foreground)]">待下载</span>
+              </label>
+              <!-- Row 2 -->
+              <label class="pl-row cursor-pointer" data-selected="true">
+                <input type="checkbox" class="ydl-check" checked>
+                <span class="font-mono text-[12px] text-[var(--ydl-muted-foreground)]">02</span>
+                <div class="thumb"><i data-lucide="play" class="w-4 h-4"></i></div>
+                <span class="text-[14px] text-[var(--ydl-foreground)] truncate">所有权与借用</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">8:45</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">210 MB</span>
+                <span class="ydl-tag">MP4</span>
+                <span class="text-[12px] text-[var(--ydl-muted-foreground)]">待下载</span>
+              </label>
+              <!-- Row 3 -->
+              <label class="pl-row cursor-pointer" data-selected="true">
+                <input type="checkbox" class="ydl-check" checked>
+                <span class="font-mono text-[12px] text-[var(--ydl-muted-foreground)]">03</span>
+                <div class="thumb"><i data-lucide="play" class="w-4 h-4"></i></div>
+                <span class="text-[14px] text-[var(--ydl-foreground)] truncate">生命周期详解</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">15:20</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">380 MB</span>
+                <span class="ydl-tag">MP4</span>
+                <span class="text-[12px] text-[var(--ydl-muted-foreground)]">待下载</span>
+              </label>
+              <!-- Row 4 (unchecked) -->
+              <label class="pl-row cursor-pointer" data-selected="false">
+                <input type="checkbox" class="ydl-check">
+                <span class="font-mono text-[12px] text-[var(--ydl-muted-foreground)]">04</span>
+                <div class="thumb"><i data-lucide="play" class="w-4 h-4"></i></div>
+                <span class="text-[14px] text-[var(--ydl-foreground)] truncate">智能指针</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">18:50</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">450 MB</span>
+                <span class="ydl-tag">MP4</span>
+                <span class="text-[12px] text-[var(--ydl-muted-foreground)]">待下载</span>
+              </label>
+              <!-- Row 5 -->
+              <label class="pl-row cursor-pointer" data-selected="true">
+                <input type="checkbox" class="ydl-check" checked>
+                <span class="font-mono text-[12px] text-[var(--ydl-muted-foreground)]">05</span>
+                <div class="thumb"><i data-lucide="play" class="w-4 h-4"></i></div>
+                <span class="text-[14px] text-[var(--ydl-foreground)] truncate">错误处理</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">10:15</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">260 MB</span>
+                <span class="ydl-tag">MP4</span>
+                <span class="text-[12px] text-[var(--ydl-muted-foreground)]">待下载</span>
+              </label>
+              <!-- Row 6 -->
+              <label class="pl-row cursor-pointer" data-selected="true">
+                <input type="checkbox" class="ydl-check" checked>
+                <span class="font-mono text-[12px] text-[var(--ydl-muted-foreground)]">06</span>
+                <div class="thumb"><i data-lucide="play" class="w-4 h-4"></i></div>
+                <span class="text-[14px] text-[var(--ydl-foreground)] truncate">泛型与 Trait</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">22:30</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">540 MB</span>
+                <span class="ydl-tag">MP4</span>
+                <span class="text-[12px] text-[var(--ydl-muted-foreground)]">待下载</span>
+              </label>
+              <!-- Row 7 (unchecked) -->
+              <label class="pl-row cursor-pointer" data-selected="false">
+                <input type="checkbox" class="ydl-check">
+                <span class="font-mono text-[12px] text-[var(--ydl-muted-foreground)]">07</span>
+                <div class="thumb"><i data-lucide="play" class="w-4 h-4"></i></div>
+                <span class="text-[14px] text-[var(--ydl-foreground)] truncate">并发编程</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">25:10</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">610 MB</span>
+                <span class="ydl-tag">MP4</span>
+                <span class="text-[12px] text-[var(--ydl-muted-foreground)]">待下载</span>
+              </label>
+              <!-- Row 8 -->
+              <label class="pl-row cursor-pointer" data-selected="true">
+                <input type="checkbox" class="ydl-check" checked>
+                <span class="font-mono text-[12px] text-[var(--ydl-muted-foreground)]">08</span>
+                <div class="thumb"><i data-lucide="play" class="w-4 h-4"></i></div>
+                <span class="text-[14px] text-[var(--ydl-foreground)] truncate">模块系统</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">9:20</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">230 MB</span>
+                <span class="ydl-tag">MP4</span>
+                <span class="text-[12px] text-[var(--ydl-muted-foreground)]">待下载</span>
+              </label>
+              <!-- Row 9 -->
+              <label class="pl-row cursor-pointer" data-selected="true">
+                <input type="checkbox" class="ydl-check" checked>
+                <span class="font-mono text-[12px] text-[var(--ydl-muted-foreground)]">09</span>
+                <div class="thumb"><i data-lucide="play" class="w-4 h-4"></i></div>
+                <span class="text-[14px] text-[var(--ydl-foreground)] truncate">宏编程入门</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">14:05</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">350 MB</span>
+                <span class="ydl-tag">MP4</span>
+                <span class="text-[12px] text-[var(--ydl-muted-foreground)]">待下载</span>
+              </label>
+              <!-- Row 10 -->
+              <label class="pl-row cursor-pointer" data-selected="true">
+                <input type="checkbox" class="ydl-check" checked>
+                <span class="font-mono text-[12px] text-[var(--ydl-muted-foreground)]">10</span>
+                <div class="thumb"><i data-lucide="play" class="w-4 h-4"></i></div>
+                <span class="text-[14px] text-[var(--ydl-foreground)] truncate">异步运行时</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">23:01</span>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">560 MB</span>
+                <span class="ydl-tag">MP4</span>
+                <span class="text-[12px] text-[var(--ydl-muted-foreground)]">待下载</span>
+              </label>
+            </div>
+          </section>
+
+          <!-- 4. Batch Action Toolbar (sticky) -->
+          <div class="batch-bar flex-wrap">
+            <span class="text-[13px] text-[var(--ydl-foreground)] font-medium whitespace-nowrap">已选择 <span class="text-[var(--ydl-primary)] font-mono">8</span> <span class="text-[var(--ydl-muted-foreground)]">/</span> <span class="font-mono">10</span> 项</span>
+            <div class="flex-1 min-w-[12px]"></div>
+            <div class="select-wrap">
+              <select class="ydl-select" data-dom-id="playlist-quality-select" aria-label="清晰度">
+                <option>1080p</option>
+                <option>720p</option>
+                <option>480p</option>
+              </select>
+              <span class="chev"><i data-lucide="chevron-down" class="w-3.5 h-3.5"></i></span>
+            </div>
+            <div class="select-wrap">
+              <select class="ydl-select" data-dom-id="playlist-format-select" aria-label="格式">
+                <option>MP4</option>
+                <option>MP3</option>
+                <option>WebM</option>
+              </select>
+              <span class="chev"><i data-lucide="chevron-down" class="w-3.5 h-3.5"></i></span>
+            </div>
+            <button class="btn btn-outline" data-dom-id="playlist-export">
+              <i data-lucide="file-down" class="w-4 h-4"></i>
+              <span>导出列表</span>
+            </button>
+            <button class="btn btn-primary" data-dom-id="playlist-batch-download">
+              <i data-lucide="download" class="w-4 h-4"></i>
+              <span>批量下载</span>
+            </button>
+          </div>
+
+        </main>
+      </div>
+    </div>
+    <script>lucide.createIcons();</script>
+</body>
+</html>

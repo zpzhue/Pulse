@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>历史记录</title>
+    <style id="theme-vars">
+/* ============================================================
+   Pulse - Brand CSS
+   Style: Dark Tech / Cyber-Cyan
+   Prefix: ydl
+   ============================================================ */
+
+/* ---- Design Tokens ---- */
+:root {
+  /* Brand Primary (single hue - cyan) */
+  --ydl-primary-hue: 188;
+  --ydl-primary-sat: 100%;
+  --ydl-primary-light: 44%;
+
+  /* Primary scale tints */
+  --ydl-primary-50: #e6fcff;
+  --ydl-primary-100: #b3f7ff;
+  --ydl-primary-200: #80f0ff;
+  --ydl-primary-300: #4de8ff;
+  --ydl-primary-400: #1adfff;
+  --ydl-primary-500: #00c9e0;
+  --ydl-primary-600: #00a3b8;
+  --ydl-primary-700: #007d8c;
+  --ydl-primary-800: #005760;
+  --ydl-primary-900: #003238;
+
+  /* Neutral scale (cool gray with slight blue tint) */
+  --ydl-neutral-50: #f4f5fa;
+  --ydl-neutral-100: #e5e7f0;
+  --ydl-neutral-200: #c8cad8;
+  --ydl-neutral-300: #a3a5b8;
+  --ydl-neutral-400: #7a7d95;
+  --ydl-neutral-500: #5a5d75;
+  --ydl-neutral-600: #43455a;
+  --ydl-neutral-700: #313346;
+  --ydl-neutral-800: #222435;
+  --ydl-neutral-900: #161825;
+  --ydl-neutral-950: #0b0b14;
+
+  /* State colors (semantic only, not brand) */
+  --state-success: #2ebe85;
+  --state-warning: #f5a623;
+  --state-error: #f56565;
+  --state-info: #4da3ff;
+
+  /* Radius scale (restrained) */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* Typography */
+  --font-sans: "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, "Noto Sans Mono", monospace;
+  --font-display: "Inter", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+
+  /* Shadows (static ≤ 0.05 alpha; floating may be deeper) */
+  --shadow-static: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 1px rgba(0, 0, 0, 0.03);
+  --shadow-float: 0 8px 24px -8px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 24px 60px -20px rgba(0, 0, 0, 0.6);
+
+  /* Spacing (8pt grid) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 80px;
+
+  /* ---- Semantic Aliases (Light mode baseline) ---- */
+  --ydl-background: var(--ydl-neutral-50);
+  --ydl-foreground: var(--ydl-neutral-900);
+  --ydl-card: #ffffff;
+  --ydl-card-foreground: var(--ydl-neutral-900);
+  --ydl-popover: #ffffff;
+  --ydl-popover-foreground: var(--ydl-neutral-900);
+  --ydl-primary: var(--ydl-primary-500);
+  --ydl-primary-foreground: #ffffff;
+  --ydl-muted: var(--ydl-neutral-100);
+  --ydl-muted-foreground: var(--ydl-neutral-500);
+  --ydl-border: var(--ydl-neutral-200);
+  --ydl-input: var(--ydl-neutral-200);
+  --ydl-ring: var(--ydl-primary-500);
+
+  --ydl-radius-small: var(--radius-sm);
+  --ydl-radius-medium: var(--radius-md);
+  --ydl-radius-large: var(--radius-lg);
+}
+
+/* ---- Dark Mode (primary theme) ---- */
+.dark {
+  --ydl-background: #0b0b14;
+  --ydl-foreground: #e8eaf6;
+  --ydl-card: #13131e;
+  --ydl-card-foreground: #e8eaf6;
+  --ydl-popover: #1a1a2b;
+  --ydl-popover-foreground: #e8eaf6;
+  --ydl-primary: #00c9e0;
+  --ydl-primary-foreground: #0b0b14;
+  --ydl-muted: #1b1b2b;
+  --ydl-muted-foreground: #9090b0;
+  --ydl-border: #252538;
+  --ydl-input: #252538;
+  --ydl-ring: #00c9e0;
+
+  /* Extended dark surface tokens for layered depth */
+  --ydl-surface: #13131e;
+  --ydl-surface-2: #1b1b2b;
+  --ydl-surface-3: #252538;
+  --ydl-ink: #e8eaf6;
+  --ydl-ink-2: #9090b0;
+  --ydl-ink-3: #5a5d7a;
+  --ydl-line: #252538;
+}
+
+/* ---- Typography Classes ---- */
+.font-display { font-family: var(--font-display); }
+.font-sans { font-family: var(--font-sans); }
+.font-mono { font-family: var(--font-mono); }
+
+.text-display { font-size: clamp(32px, 4vw, 48px); line-height: 1.1; font-weight: 600; letter-spacing: -0.02em; }
+.text-h1 { font-size: clamp(24px, 3vw, 36px); line-height: 1.2; font-weight: 600; letter-spacing: -0.015em; }
+.text-h2 { font-size: clamp(20px, 2.2vw, 28px); line-height: 1.3; font-weight: 600; letter-spacing: -0.01em; }
+.text-h3 { font-size: 18px; line-height: 1.4; font-weight: 600; }
+.text-body { font-size: 14px; line-height: 1.6; font-weight: 400; }
+.text-body-sm { font-size: 13px; line-height: 1.55; font-weight: 400; }
+.text-caption { font-size: 12px; line-height: 1.5; font-weight: 400; }
+.text-mono { font-size: 13px; line-height: 1.5; font-weight: 500; font-family: var(--font-mono); }
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--ydl-background);
+    --color-foreground: var(--ydl-foreground);
+    --color-card: var(--ydl-card);
+    --color-card-foreground: var(--ydl-card-foreground);
+    --color-popover: var(--ydl-popover);
+    --color-popover-foreground: var(--ydl-popover-foreground);
+    --color-primary: var(--ydl-primary);
+    --color-primary-foreground: var(--ydl-primary-foreground);
+    --color-muted: var(--ydl-muted);
+    --color-muted-foreground: var(--ydl-muted-foreground);
+    --color-border: var(--ydl-border);
+    --color-input: var(--ydl-input);
+    --color-ring: var(--ydl-ring);
+    --radius-sm: var(--ydl-radius-small);
+    --radius-md: var(--ydl-radius-medium);
+    --radius-lg: var(--ydl-radius-large);
+  }
+  @layer base {
+    body { background: var(--ydl-background); color: var(--ydl-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--ydl-background); }
+      .text-background { color: var(--ydl-background); }
+      .border-background { border-color: var(--ydl-background); }
+      .ring-background { --tw-ring-color: var(--ydl-background); }
+      .bg-foreground { background-color: var(--ydl-foreground); }
+      .text-foreground { color: var(--ydl-foreground); }
+      .border-foreground { border-color: var(--ydl-foreground); }
+      .ring-foreground { --tw-ring-color: var(--ydl-foreground); }
+      .bg-card { background-color: var(--ydl-card); }
+      .text-card { color: var(--ydl-card); }
+      .border-card { border-color: var(--ydl-card); }
+      .ring-card { --tw-ring-color: var(--ydl-card); }
+      .bg-card-foreground { background-color: var(--ydl-card-foreground); }
+      .text-card-foreground { color: var(--ydl-card-foreground); }
+      .border-card-foreground { border-color: var(--ydl-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--ydl-card-foreground); }
+      .bg-popover { background-color: var(--ydl-popover); }
+      .text-popover { color: var(--ydl-popover); }
+      .border-popover { border-color: var(--ydl-popover); }
+      .ring-popover { --tw-ring-color: var(--ydl-popover); }
+      .bg-popover-foreground { background-color: var(--ydl-popover-foreground); }
+      .text-popover-foreground { color: var(--ydl-popover-foreground); }
+      .border-popover-foreground { border-color: var(--ydl-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--ydl-popover-foreground); }
+      .bg-primary { background-color: var(--ydl-primary); }
+      .text-primary { color: var(--ydl-primary); }
+      .border-primary { border-color: var(--ydl-primary); }
+      .ring-primary { --tw-ring-color: var(--ydl-primary); }
+      .bg-primary-foreground { background-color: var(--ydl-primary-foreground); }
+      .text-primary-foreground { color: var(--ydl-primary-foreground); }
+      .border-primary-foreground { border-color: var(--ydl-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--ydl-primary-foreground); }
+      .bg-muted { background-color: var(--ydl-muted); }
+      .text-muted { color: var(--ydl-muted); }
+      .border-muted { border-color: var(--ydl-muted); }
+      .ring-muted { --tw-ring-color: var(--ydl-muted); }
+      .bg-muted-foreground { background-color: var(--ydl-muted-foreground); }
+      .text-muted-foreground { color: var(--ydl-muted-foreground); }
+      .border-muted-foreground { border-color: var(--ydl-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--ydl-muted-foreground); }
+      .bg-border { background-color: var(--ydl-border); }
+      .text-border { color: var(--ydl-border); }
+      .border-border { border-color: var(--ydl-border); }
+      .ring-border { --tw-ring-color: var(--ydl-border); }
+      .bg-input { background-color: var(--ydl-input); }
+      .text-input { color: var(--ydl-input); }
+      .border-input { border-color: var(--ydl-input); }
+      .ring-input { --tw-ring-color: var(--ydl-input); }
+      .bg-ring { background-color: var(--ydl-ring); }
+      .text-ring { color: var(--ydl-ring); }
+      .border-ring { border-color: var(--ydl-ring); }
+      .ring-ring { --tw-ring-color: var(--ydl-ring); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+    <style id="critical-layout">
+      /* Critical layout backup — survives without Tailwind browser compilation */
+      html, body { height: 100%; margin: 0; padding: 0; }
+      body { font-family: var(--font-sans); background: var(--ydl-background); color: var(--ydl-foreground); -webkit-font-smoothing: antialiased; }
+
+      /* Root frame */
+      .ydl-app-frame { display: flex; height: 100vh; overflow: hidden; background: var(--ydl-background); color: var(--ydl-foreground); }
+      .ydl-app-sidebar { width: 240px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--ydl-border); background: var(--ydl-card); }
+      .ydl-app-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+      .ydl-app-topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 56px; border-bottom: 1px solid var(--ydl-border); flex-shrink: 0; background: var(--ydl-card); }
+      .ydl-app-content { flex: 1; overflow-y: auto; padding: 24px; }
+
+      /* Nav items */
+      .ydl-nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px; color: var(--ydl-muted-foreground); text-decoration: none; transition: background-color 120ms cubic-bezier(.2,.8,.2,1), color 120ms cubic-bezier(.2,.8,.2,1); }
+      .ydl-nav-item:hover { background: var(--ydl-muted); color: var(--ydl-foreground); }
+      .ydl-nav-item[data-active="true"] { background: var(--ydl-muted); color: var(--ydl-foreground); }
+
+      /* Filter pills */
+      .ydl-filter-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 9999px; font-size: 13px; color: var(--ydl-muted-foreground); background: transparent; border: 1px solid var(--ydl-border); cursor: pointer; transition: background-color 120ms cubic-bezier(.2,.8,.2,1), color 120ms cubic-bezier(.2,.8,.2,1), border-color 120ms cubic-bezier(.2,.8,.2,1); }
+      .ydl-filter-pill:hover { background: var(--ydl-muted); color: var(--ydl-foreground); }
+      .ydl-filter-pill[data-active="true"] { background: var(--ydl-primary); color: var(--ydl-primary-foreground); border-color: var(--ydl-primary); }
+
+      /* History table */
+      .ydl-history-table { width: 100%; border-collapse: collapse; }
+      .ydl-history-table thead { background: var(--ydl-muted); }
+      .ydl-history-table thead th { text-align: left; padding: 12px; font-size: 12px; font-weight: 500; color: var(--ydl-muted-foreground); border-bottom: 1px solid var(--ydl-border); white-space: nowrap; }
+      .ydl-history-table thead th:last-child { text-align: right; }
+      .ydl-history-table tbody tr { border-bottom: 1px solid var(--ydl-border); transition: background-color 120ms cubic-bezier(.2,.8,.2,1); }
+      .ydl-history-table tbody tr:last-child { border-bottom: none; }
+      .ydl-history-table tbody tr:hover { background: var(--ydl-muted); }
+      .ydl-history-table tbody td { padding: 12px; vertical-align: middle; }
+      .ydl-history-table tbody td:last-child { text-align: right; }
+
+      /* Action button */
+      .ydl-action-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; color: var(--ydl-muted-foreground); border: none; background: transparent; cursor: pointer; transition: background-color 120ms cubic-bezier(.2,.8,.2,1), color 120ms cubic-bezier(.2,.8,.2,1); }
+      .ydl-action-btn:hover { background: var(--ydl-surface-2); color: var(--ydl-foreground); }
+
+      /* Load more button */
+      .ydl-load-more { display: inline-flex; align-items: center; gap: 8px; padding: 10px 24px; border-radius: 8px; font-size: 13px; color: var(--ydl-muted-foreground); background: transparent; border: 1px solid var(--ydl-border); cursor: pointer; transition: background-color 120ms cubic-bezier(.2,.8,.2,1), color 120ms cubic-bezier(.2,.8,.2,1); }
+      .ydl-load-more:hover { background: var(--ydl-muted); color: var(--ydl-foreground); }
+
+      @media (prefers-reduced-motion: reduce) {
+        * { transition-duration: 0.01ms !important; }
+      }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+
+<div class="ydl-app-frame flex h-screen overflow-hidden bg-[var(--ydl-background)] text-[var(--ydl-foreground)]">
+
+  <!-- Left Sidebar -->
+  <aside class="ydl-app-sidebar w-[240px] shrink-0 flex flex-col border-r border-[var(--ydl-border)] bg-[var(--ydl-card)]">
+    <!-- Brand Logo -->
+    <div class="flex items-center gap-2.5 px-5 h-[56px] border-b border-[var(--ydl-border)]">
+      <div class="w-7 h-7 rounded-lg bg-[var(--ydl-primary)] flex items-center justify-center shrink-0">
+        <i data-lucide="download" class="w-4 h-4 text-[var(--ydl-primary-foreground)]"></i>
+      </div>
+      <span class="font-semibold text-[15px] text-[var(--ydl-foreground)]">Pulse</span>
+    </div>
+
+    <!-- Nav Items -->
+    <nav class="flex-1 px-3 py-4 flex flex-col gap-1">
+      <a href="#" data-nav-key="dashboard" data-dom-id="nav-dashboard"
+         class="ydl-nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] text-[var(--ydl-muted-foreground)] hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)]">
+        <i data-lucide="layout-dashboard" class="w-[18px] h-[18px] shrink-0"></i>
+        <span>主页</span>
+      </a>
+      <a href="#" data-nav-key="new-download" data-dom-id="nav-new-download"
+         class="ydl-nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] text-[var(--ydl-muted-foreground)] hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)]">
+        <i data-lucide="plus-circle" class="w-[18px] h-[18px] shrink-0"></i>
+        <span>新建下载</span>
+      </a>      <a href="#" data-nav-key="history" data-dom-id="nav-history" data-active="true"
+         class="ydl-nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] bg-[var(--ydl-muted)] text-[var(--ydl-foreground)]">
+        <i data-lucide="history" class="w-[18px] h-[18px] shrink-0"></i>
+        <span>历史记录</span>
+      </a>
+      <a href="#" data-nav-key="settings" data-dom-id="nav-settings"
+         class="ydl-nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] text-[var(--ydl-muted-foreground)] hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)]">
+        <i data-lucide="settings" class="w-[18px] h-[18px] shrink-0"></i>
+        <span>设置</span>
+      </a>
+    </nav>
+      </aside>
+
+  <!-- Main Content Area -->
+  <div class="ydl-app-main flex-1 flex flex-col min-w-0">
+    <!-- Top Bar -->
+    <header class="ydl-app-topbar flex items-center justify-between px-6 h-[56px] border-b border-[var(--ydl-border)] shrink-0">
+      <div class="flex items-center gap-3">
+        <h1 class="text-[15px] font-semibold text-[var(--ydl-foreground)]">历史记录</h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--ydl-muted-foreground)] hover:bg-[var(--ydl-muted)] transition-colors" aria-label="搜索">
+          <i data-lucide="search" class="w-4 h-4"></i>
+        </button>
+        <button class="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--ydl-muted-foreground)] hover:bg-[var(--ydl-muted)] transition-colors" aria-label="通知">
+          <i data-lucide="bell" class="w-4 h-4"></i>
+        </button>
+        <div class="w-px h-5 bg-[var(--ydl-border)] mx-1"></div>
+        <button class="flex items-center gap-1.5 px-3 h-8 rounded-lg text-[13px] text-[var(--ydl-foreground)] bg-[var(--ydl-muted)] hover:bg-[var(--ydl-surface-2)] transition-colors">
+          <i data-lucide="palette" class="w-3.5 h-3.5"></i>
+          <span>主题</span>
+        </button>
+            <div class="w-px h-5 bg-[var(--ydl-border)] mx-1"></div>
+            <button class="topbar-btn w-8 h-8 rounded-lg flex items-center justify-center text-[var(--ydl-muted-foreground)] hover:bg-[var(--ydl-muted)] transition-colors" aria-label="切换至亮色模式" data-dom-id="mode-toggle">
+              <i data-lucide="sun" class="w-4 h-4"></i>
+            </button>
+
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="ydl-app-content flex-1 overflow-y-auto p-6">
+
+      <!-- Search & Filter Bar -->
+      <div class="mb-5">
+        <!-- Row 1: Search + Sort -->
+        <div class="flex items-center gap-3 mb-3">
+          <div class="relative flex-1">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ydl-muted-foreground)] pointer-events-none"></i>
+            <input type="text" placeholder="搜索下载记录..." class="w-full h-10 pl-10 pr-4 rounded-lg bg-[var(--ydl-card)] border border-[var(--ydl-border)] text-[14px] text-[var(--ydl-foreground)] placeholder:text-[var(--ydl-muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ydl-ring)] focus:border-transparent transition-shadow" />
+          </div>
+          <button class="flex items-center gap-2 h-10 px-4 rounded-lg bg-[var(--ydl-card)] border border-[var(--ydl-border)] text-[13px] text-[var(--ydl-foreground)] hover:bg-[var(--ydl-muted)] transition-colors shrink-0">
+            <span>按时间排序</span>
+            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-[var(--ydl-muted-foreground)]"></i>
+          </button>
+        </div>
+        <!-- Row 2: Filter Tabs -->
+        <div class="flex items-center gap-2">
+          <button data-filter="all" data-active="true" class="ydl-filter-pill inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] bg-[var(--ydl-primary)] text-[var(--ydl-primary-foreground)] border border-[var(--ydl-primary)]">
+            <span>全部</span>
+            <span class="text-[12px] opacity-80">127</span>
+          </button>
+          <button data-filter="video" class="ydl-filter-pill inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] text-[var(--ydl-muted-foreground)] border border-[var(--ydl-border)] hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)] transition-colors">
+            <span>视频</span>
+            <span class="text-[12px] opacity-80">98</span>
+          </button>
+          <button data-filter="audio" class="ydl-filter-pill inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] text-[var(--ydl-muted-foreground)] border border-[var(--ydl-border)] hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)] transition-colors">
+            <span>音频</span>
+            <span class="text-[12px] opacity-80">22</span>
+          </button>
+          <button data-filter="subtitle" class="ydl-filter-pill inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] text-[var(--ydl-muted-foreground)] border border-[var(--ydl-border)] hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)] transition-colors">
+            <span>字幕</span>
+            <span class="text-[12px] opacity-80">7</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- History Table -->
+      <div class="bg-[var(--ydl-card)] rounded-lg border border-[var(--ydl-border)] overflow-hidden">
+        <table class="ydl-history-table w-full">
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>来源</th>
+              <th>文件信息</th>
+              <th>时间</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Row 1 -->
+            <tr>
+              <td>
+                <div class="flex items-center gap-3">
+                  <div class="relative w-16 h-10 rounded bg-[var(--ydl-muted)] flex items-center justify-center shrink-0">
+                    <i data-lucide="play" class="w-4 h-4 text-[var(--ydl-muted-foreground)]"></i>
+                  </div>
+                  <span class="text-[14px] text-[var(--ydl-foreground)] truncate max-w-[260px]">Rust 异步编程完全指南</span>
+                </div>
+              </td>
+              <td>
+                <span class="inline-flex items-center bg-[var(--ydl-muted)] text-[var(--ydl-muted-foreground)] rounded px-2 py-0.5 text-[12px] font-mono">youtube.com</span>
+              </td>
+              <td>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">456 MB / MP4</span>
+              </td>
+              <td>
+                <span class="text-[13px] text-[var(--ydl-muted-foreground)] whitespace-nowrap">2小时前</span>
+              </td>
+              <td>
+                <span class="inline-flex items-center gap-1.5 text-[13px] text-[var(--state-success)] whitespace-nowrap">
+                  <span class="w-1.5 h-1.5 rounded-full bg-[var(--state-success)]"></span>
+                  已完成
+                </span>
+              </td>
+              <td>
+                <button class="ydl-action-btn" aria-label="更多操作">
+                  <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+                </button>
+              </td>
+            </tr>
+            <!-- Row 2 -->
+            <tr>
+              <td>
+                <div class="flex items-center gap-3">
+                  <div class="relative w-16 h-10 rounded bg-[var(--ydl-muted)] flex items-center justify-center shrink-0">
+                    <i data-lucide="play" class="w-4 h-4 text-[var(--ydl-muted-foreground)]"></i>
+                  </div>
+                  <span class="text-[14px] text-[var(--ydl-foreground)] truncate max-w-[260px]">4K 城市夜景航拍合集</span>
+                </div>
+              </td>
+              <td>
+                <span class="inline-flex items-center bg-[var(--ydl-muted)] text-[var(--ydl-muted-foreground)] rounded px-2 py-0.5 text-[12px] font-mono">bilibili.com</span>
+              </td>
+              <td>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">2.4 GB / MP4</span>
+              </td>
+              <td>
+                <span class="text-[13px] text-[var(--ydl-muted-foreground)] whitespace-nowrap">5小时前</span>
+              </td>
+              <td>
+                <span class="inline-flex items-center gap-1.5 text-[13px] text-[var(--state-success)] whitespace-nowrap">
+                  <span class="w-1.5 h-1.5 rounded-full bg-[var(--state-success)]"></span>
+                  已完成
+                </span>
+              </td>
+              <td>
+                <button class="ydl-action-btn" aria-label="更多操作">
+                  <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+                </button>
+              </td>
+            </tr>
+            <!-- Row 3 -->
+            <tr>
+              <td>
+                <div class="flex items-center gap-3">
+                  <div class="relative w-16 h-10 rounded bg-[var(--ydl-muted)] flex items-center justify-center shrink-0">
+                    <i data-lucide="music" class="w-4 h-4 text-[var(--ydl-muted-foreground)]"></i>
+                  </div>
+                  <span class="text-[14px] text-[var(--ydl-foreground)] truncate max-w-[260px]">TypeScript 高级类型系统</span>
+                </div>
+              </td>
+              <td>
+                <span class="inline-flex items-center bg-[var(--ydl-muted)] text-[var(--ydl-muted-foreground)] rounded px-2 py-0.5 text-[12px] font-mono">youtube.com</span>
+              </td>
+              <td>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">89 MB / MP3</span>
+              </td>
+              <td>
+                <span class="text-[13px] text-[var(--ydl-muted-foreground)] whitespace-nowrap">昨天</span>
+              </td>
+              <td>
+                <span class="inline-flex items-center gap-1.5 text-[13px] text-[var(--state-success)] whitespace-nowrap">
+                  <span class="w-1.5 h-1.5 rounded-full bg-[var(--state-success)]"></span>
+                  已完成
+                </span>
+              </td>
+              <td>
+                <button class="ydl-action-btn" aria-label="更多操作">
+                  <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+                </button>
+              </td>
+            </tr>
+            <!-- Row 4 -->
+            <tr>
+              <td>
+                <div class="flex items-center gap-3">
+                  <div class="relative w-16 h-10 rounded bg-[var(--ydl-muted)] flex items-center justify-center shrink-0">
+                    <i data-lucide="play" class="w-4 h-4 text-[var(--ydl-muted-foreground)]"></i>
+                  </div>
+                  <span class="text-[14px] text-[var(--ydl-foreground)] truncate max-w-[260px]">Linux 系统管理实战</span>
+                </div>
+              </td>
+              <td>
+                <span class="inline-flex items-center bg-[var(--ydl-muted)] text-[var(--ydl-muted-foreground)] rounded px-2 py-0.5 text-[12px] font-mono">bilibili.com</span>
+              </td>
+              <td>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">1.2 GB / MP4</span>
+              </td>
+              <td>
+                <span class="text-[13px] text-[var(--ydl-muted-foreground)] whitespace-nowrap">昨天</span>
+              </td>
+              <td>
+                <span class="inline-flex items-center gap-1.5 text-[13px] text-[var(--state-success)] whitespace-nowrap">
+                  <span class="w-1.5 h-1.5 rounded-full bg-[var(--state-success)]"></span>
+                  已完成
+                </span>
+              </td>
+              <td>
+                <button class="ydl-action-btn" aria-label="更多操作">
+                  <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+                </button>
+              </td>
+            </tr>
+            <!-- Row 5 -->
+            <tr>
+              <td>
+                <div class="flex items-center gap-3">
+                  <div class="relative w-16 h-10 rounded bg-[var(--ydl-muted)] flex items-center justify-center shrink-0">
+                    <i data-lucide="play" class="w-4 h-4 text-[var(--ydl-muted-foreground)]"></i>
+                  </div>
+                  <span class="text-[14px] text-[var(--ydl-foreground)] truncate max-w-[260px]">Go 语言设计哲学</span>
+                </div>
+              </td>
+              <td>
+                <span class="inline-flex items-center bg-[var(--ydl-muted)] text-[var(--ydl-muted-foreground)] rounded px-2 py-0.5 text-[12px] font-mono">youtube.com</span>
+              </td>
+              <td>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">234 MB / MP4</span>
+              </td>
+              <td>
+                <span class="text-[13px] text-[var(--ydl-muted-foreground)] whitespace-nowrap">3天前</span>
+              </td>
+              <td>
+                <span class="inline-flex items-center gap-1.5 text-[13px] text-[var(--state-success)] whitespace-nowrap">
+                  <span class="w-1.5 h-1.5 rounded-full bg-[var(--state-success)]"></span>
+                  已完成
+                </span>
+              </td>
+              <td>
+                <button class="ydl-action-btn" aria-label="更多操作">
+                  <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+                </button>
+              </td>
+            </tr>
+            <!-- Row 6 -->
+            <tr>
+              <td>
+                <div class="flex items-center gap-3">
+                  <div class="relative w-16 h-10 rounded bg-[var(--ydl-muted)] flex items-center justify-center shrink-0">
+                    <i data-lucide="play" class="w-4 h-4 text-[var(--ydl-muted-foreground)]"></i>
+                  </div>
+                  <span class="text-[14px] text-[var(--ydl-foreground)] truncate max-w-[260px]">Docker 容器化部署教程</span>
+                </div>
+              </td>
+              <td>
+                <span class="inline-flex items-center bg-[var(--ydl-muted)] text-[var(--ydl-muted-foreground)] rounded px-2 py-0.5 text-[12px] font-mono">vimeo.com</span>
+              </td>
+              <td>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">678 MB / MKV</span>
+              </td>
+              <td>
+                <span class="text-[13px] text-[var(--ydl-muted-foreground)] whitespace-nowrap">1周前</span>
+              </td>
+              <td>
+                <span class="inline-flex items-center gap-1.5 text-[13px] text-[var(--state-success)] whitespace-nowrap">
+                  <span class="w-1.5 h-1.5 rounded-full bg-[var(--state-success)]"></span>
+                  已完成
+                </span>
+              </td>
+              <td>
+                <button class="ydl-action-btn" aria-label="更多操作">
+                  <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+                </button>
+              </td>
+            </tr>
+            <!-- Row 7 -->
+            <tr>
+              <td>
+                <div class="flex items-center gap-3">
+                  <div class="relative w-16 h-10 rounded bg-[var(--ydl-muted)] flex items-center justify-center shrink-0">
+                    <i data-lucide="music" class="w-4 h-4 text-[var(--ydl-muted-foreground)]"></i>
+                  </div>
+                  <span class="text-[14px] text-[var(--ydl-foreground)] truncate max-w-[260px]">Vim 编辑器精通之路</span>
+                </div>
+              </td>
+              <td>
+                <span class="inline-flex items-center bg-[var(--ydl-muted)] text-[var(--ydl-muted-foreground)] rounded px-2 py-0.5 text-[12px] font-mono">youtube.com</span>
+              </td>
+              <td>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">45 MB / MP3</span>
+              </td>
+              <td>
+                <span class="text-[13px] text-[var(--ydl-muted-foreground)] whitespace-nowrap">1周前</span>
+              </td>
+              <td>
+                <span class="inline-flex items-center gap-1.5 text-[13px] text-[var(--state-success)] whitespace-nowrap">
+                  <span class="w-1.5 h-1.5 rounded-full bg-[var(--state-success)]"></span>
+                  已完成
+                </span>
+              </td>
+              <td>
+                <button class="ydl-action-btn" aria-label="更多操作">
+                  <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+                </button>
+              </td>
+            </tr>
+            <!-- Row 8 -->
+            <tr>
+              <td>
+                <div class="flex items-center gap-3">
+                  <div class="relative w-16 h-10 rounded bg-[var(--ydl-muted)] flex items-center justify-center shrink-0">
+                    <i data-lucide="play" class="w-4 h-4 text-[var(--ydl-muted-foreground)]"></i>
+                  </div>
+                  <span class="text-[14px] text-[var(--ydl-foreground)] truncate max-w-[260px]">Kubernetes 集群搭建指南</span>
+                </div>
+              </td>
+              <td>
+                <span class="inline-flex items-center bg-[var(--ydl-muted)] text-[var(--ydl-muted-foreground)] rounded px-2 py-0.5 text-[12px] font-mono">youtube.com</span>
+              </td>
+              <td>
+                <span class="font-mono text-[13px] text-[var(--ydl-muted-foreground)]">1.5 GB / MP4</span>
+              </td>
+              <td>
+                <span class="text-[13px] text-[var(--ydl-muted-foreground)] whitespace-nowrap">2周前</span>
+              </td>
+              <td>
+                <span class="inline-flex items-center gap-1.5 text-[13px] text-[var(--state-success)] whitespace-nowrap">
+                  <span class="w-1.5 h-1.5 rounded-full bg-[var(--state-success)]"></span>
+                  已完成
+                </span>
+              </td>
+              <td>
+                <button class="ydl-action-btn" aria-label="更多操作">
+                  <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Load More -->
+      <div class="mt-6 flex justify-center">
+        <button class="ydl-load-more inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-[13px] text-[var(--ydl-muted-foreground)] border border-[var(--ydl-border)] hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)] transition-colors">
+          <span>加载更多</span>
+          <i data-lucide="chevron-down" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Footer -->
+      <footer class="mt-8 pt-4 border-t border-[var(--ydl-border)] flex items-center justify-between text-[12px] text-[var(--ydl-muted-foreground)]">
+        <span>共 127 条记录 · 总计 6.5 GB</span>
+        <span>Pulse · 本地存储</span>
+      </footer>
+
+    </main>
+  </div>
+
+</div>
+
+<script>lucide.createIcons();</script>
+</body>
+</html>

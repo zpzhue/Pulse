@@ -1,0 +1,92 @@
+<!-- Project Shell Fragment: Sidebar + Top Bar + Root Frame -->
+<!-- Shared by all pages. Leaf pages fill slots: activeNavItem, pageTitle, mainContent -->
+<!-- Do NOT add <html>, <head>, or <body> — this is a fragment only -->
+
+<!-- Root Frame -->
+<div class="flex h-screen overflow-hidden bg-[var(--ydl-background)] text-[var(--ydl-foreground)]">
+
+  <!-- Left Sidebar -->
+  <aside class="w-[240px] shrink-0 flex flex-col border-r border-[var(--ydl-border)] bg-[var(--ydl-card)]">
+    <!-- Brand Logo -->
+    <div class="flex items-center gap-2.5 px-5 h-[56px] border-b border-[var(--ydl-border)]">
+      <div class="w-7 h-7 rounded-lg bg-[var(--ydl-primary)] flex items-center justify-center shrink-0">
+        <i data-lucide="download" class="w-4 h-4 text-[var(--ydl-primary-foreground)]"></i>
+      </div>
+      <span class="font-semibold text-[15px] text-[var(--ydl-foreground)]">yt-dlp</span>
+      <span class="text-[12px] text-[var(--ydl-muted-foreground)]">Manager</span>
+    </div>
+
+    <!-- Nav Items -->
+    <nav class="flex-1 px-3 py-4 flex flex-col gap-1">
+      <!-- SLOT: activeNavItem — leaf pages set data-active on the correct item -->
+      <a href="#" data-nav-key="dashboard" data-dom-id="nav-dashboard"
+         class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] text-[var(--ydl-muted-foreground)] transition-colors hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)]">
+        <i data-lucide="layout-dashboard" class="w-[18px] h-[18px] shrink-0"></i>
+        <span>主页</span>
+      </a>
+      <a href="#" data-nav-key="new-download" data-dom-id="nav-new-download"
+         class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] text-[var(--ydl-muted-foreground)] transition-colors hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)]">
+        <i data-lucide="plus-circle" class="w-[18px] h-[18px] shrink-0"></i>
+        <span>新建下载</span>
+      </a>
+      <a href="#" data-nav-key="playlist" data-dom-id="nav-playlist"
+         class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] text-[var(--ydl-muted-foreground)] transition-colors hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)]">
+        <i data-lucide="list-video" class="w-[18px] h-[18px] shrink-0"></i>
+        <span>播放列表</span>
+      </a>
+      <a href="#" data-nav-key="history" data-dom-id="nav-history"
+         class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] text-[var(--ydl-muted-foreground)] transition-colors hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)]">
+        <i data-lucide="history" class="w-[18px] h-[18px] shrink-0"></i>
+        <span>历史记录</span>
+      </a>
+      <a href="#" data-nav-key="settings" data-dom-id="nav-settings"
+         class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] text-[var(--ydl-muted-foreground)] transition-colors hover:bg-[var(--ydl-muted)] hover:text-[var(--ydl-foreground)]">
+        <i data-lucide="settings" class="w-[18px] h-[18px] shrink-0"></i>
+        <span>设置</span>
+      </a>
+    </nav>
+
+    <!-- Bottom User Profile -->
+    <div class="px-3 py-3 border-t border-[var(--ydl-border)]">
+      <div class="flex items-center gap-2.5 px-2 py-1.5">
+        <div class="w-8 h-8 rounded-full bg-[var(--ydl-muted)] flex items-center justify-center shrink-0">
+          <i data-lucide="user" class="w-4 h-4 text-[var(--ydl-muted-foreground)]"></i>
+        </div>
+        <div class="flex flex-col min-w-0">
+          <span class="text-[13px] text-[var(--ydl-foreground)] truncate">本地用户</span>
+          <span class="text-[11px] text-[var(--ydl-muted-foreground)] truncate">yt-dlp 2025.08</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content Area -->
+  <div class="flex-1 flex flex-col min-w-0">
+    <!-- Top Bar -->
+    <header class="flex items-center justify-between px-6 h-[56px] border-b border-[var(--ydl-border)] shrink-0">
+      <div class="flex items-center gap-3">
+        <!-- SLOT: pageTitle — leaf pages set the page title here -->
+        <h1 class="text-[15px] font-semibold text-[var(--ydl-foreground)]">页面标题</h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--ydl-muted-foreground)] hover:bg-[var(--ydl-muted)] transition-colors">
+          <i data-lucide="search" class="w-4 h-4"></i>
+        </button>
+        <button class="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--ydl-muted-foreground)] hover:bg-[var(--ydl-muted)] transition-colors">
+          <i data-lucide="bell" class="w-4 h-4"></i>
+        </button>
+        <div class="w-px h-5 bg-[var(--ydl-border)] mx-1"></div>
+        <button class="flex items-center gap-1.5 px-3 h-8 rounded-lg text-[13px] text-[var(--ydl-foreground)] bg-[var(--ydl-muted)] hover:bg-[var(--ydl-surface-2)] transition-colors">
+          <i data-lucide="palette" class="w-3.5 h-3.5"></i>
+          <span>主题</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- SLOT: mainContent — leaf pages fill this with their private content -->
+    <main class="flex-1 overflow-y-auto p-6">
+      <!-- Page content goes here -->
+    </main>
+  </div>
+
+</div>

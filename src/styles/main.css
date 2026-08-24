@@ -1,0 +1,46 @@
+@import "tailwindcss";
+@import "./design-tokens.css";
+
+/* Map design tokens → Tailwind theme so utilities like
+   bg-background / text-foreground / border-border / text-primary work. */
+@theme inline {
+  --color-background: var(--ydl-background);
+  --color-foreground: var(--ydl-foreground);
+  --color-card: var(--ydl-card);
+  --color-card-foreground: var(--ydl-card-foreground);
+  --color-popover: var(--ydl-popover);
+  --color-popover-foreground: var(--ydl-popover-foreground);
+  --color-primary: var(--ydl-primary);
+  --color-primary-foreground: var(--ydl-primary-foreground);
+  --color-muted: var(--ydl-muted);
+  --color-muted-foreground: var(--ydl-muted-foreground);
+  --color-border: var(--ydl-border);
+  --color-input: var(--ydl-input);
+  --color-ring: var(--ydl-ring);
+  --color-surface: var(--ydl-surface);
+  --color-surface-2: var(--ydl-surface-2);
+  --color-surface-3: var(--ydl-surface-3);
+  --radius-sm: var(--ydl-radius-small);
+  --radius-md: var(--ydl-radius-medium);
+  --radius-lg: var(--ydl-radius-large);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--ydl-background);
+    color: var(--ydl-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  #app {
+    height: 100%;
+  }
+}
