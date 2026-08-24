@@ -31,7 +31,7 @@ const navItems: { key: PanelKey; icon: typeof Palette; label: string }[] = [
 ];
 
 /* ---- 外观 ---- */
-const density = ref<"紧凑" | "标准" | "舒适">("标准");
+const density = ref("标准");
 
 /* ---- 下载设置 ---- */
 const defaultQuality = ref("1080p (推荐)");

@@ -333,3 +333,60 @@ pub fn detect() -> Option<Detection> {
         .into_iter()
         .find_map(|c| version(Some(c.clone())).ok().map(|version| Detection { path: c, version }))
 }
+
+#[cfg(test)]
+mod tests {
+    //! End-to-end sanity tests for the detection logic. A fake `yt-dlp`
+    //! executable is injected onto PATH to exercise the real discovery path.
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+
+    fn temp_dir(suffix: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pulse_detect_{suffix}_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_fake_ytdlp(dir: &PathBuf) -> PathBuf {
+        let bin = dir.join("yt-dlp");
+        fs::write(&bin, "#!/bin/sh\nprintf '2026.08.24-test'\n").unwrap();
+        let mut perm = fs::metadata(&bin).unwrap().permissions();
+        perm.set_mode(0o755);
+        fs::set_permissions(&bin, perm).unwrap();
+        bin
+    }
+
+    fn set_env(vars: &[(&str, &str)]) {
+        for (k, v) in vars {
+            unsafe { std::env::set_var(k, v) };
+        }
+    }
+
+    #[test]
+    fn detect_probes_path_then_reports_missing() {
+        let found_dir = temp_dir("found");
+        let empty_dir = temp_dir("empty");
+        let home = temp_dir("home");
+        write_fake_ytdlp(&found_dir);
+        // Deterministic environment: isolate PATH and HOME.
+        let old_path = std::env::var("PATH").unwrap_or_default();
+        set_env(&[
+            ("PATH", &format!("{}:{}", found_dir.to_string_lossy(), old_path)),
+            ("HOME", &home.to_string_lossy()),
+        ]);
+
+        // Found: a fake yt-dlp is first on PATH → detection resolves it.
+        let found = detect().expect("should locate the fake yt-dlp on PATH");
+        assert_eq!(found.version, "2026.08.24-test");
+
+        // Missing: PATH has no yt-dlp → detect() returns None (not an error).
+        set_env(&[
+            ("PATH", empty_dir.to_string_lossy().as_ref()),
+            ("HOME", home.to_string_lossy().as_ref()),
+        ]);
+        assert!(detect().is_none());
+    }
+}

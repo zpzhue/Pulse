@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-import type { Channel } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 
 /** Resolved URL metadata returned by the Rust `resolve_url` command. */
 export interface ResolveResult {

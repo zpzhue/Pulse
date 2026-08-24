@@ -5,12 +5,12 @@ import AppSidebar from "./components/layout/AppSidebar.vue";
 import AppTopbar from "./components/layout/AppTopbar.vue";
 import { useYtdlp } from "./composables/useYtdlp";
 
-const ytdlp = useYtdlp();
+const { status: ytdlpStatus, path: ytdlpPath, init, setManual, downloadYtdlp } = useYtdlp();
 const showDialog = ref(false);
 const customPath = ref("");
 
 function openPathDialog() {
-  customPath.value = ytdlp.path.value;
+  customPath.value = ytdlpPath.value;
   showDialog.value = true;
 }
 
@@ -18,10 +18,10 @@ async function applyPath() {
   const path = customPath.value.trim();
   if (!path) return;
   showDialog.value = false;
-  await ytdlp.setManual(path);
+  await setManual(path);
 }
 
-onMounted(() => ytdlp.init());
+onMounted(() => init());
 </script>
 
 <template>
@@ -33,22 +33,22 @@ onMounted(() => ytdlp.init());
 
       <!-- yt-dlp missing / invalid banner -->
       <div
-        v-if="ytdlp.status === 'missing' || ytdlp.status === 'invalid'"
+        v-if="ytdlpStatus === 'missing' || ytdlpStatus === 'invalid'"
         class="px-6 py-2.5 flex items-center gap-3 text-[13px] border-b border-border bg-[var(--state-warning)]/10"
       >
         <TriangleAlert class="w-4 h-4 text-[var(--state-warning)] shrink-0" />
         <p class="text-foreground min-w-0 flex-1">
-          <template v-if="ytdlp.status === 'missing'">
+          <template v-if="ytdlpStatus === 'missing'">
             未检测到 yt-dlp 下载引擎，需要安装后才能开始下载。
           </template>
           <template v-else>
-            yt-dlp 路径无效（{{ ytdlp.path }}），无法启动下载。
+            yt-dlp 路径无效（{{ ytdlpPath }}），无法启动下载。
           </template>
         </p>
         <button
           type="button"
           class="shrink-0 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 bg-primary text-primary-foreground font-medium transition-opacity hover:opacity-90"
-          @click="ytdlp.downloadYtdlp"
+          @click="downloadYtdlp"
         >
           <Download class="w-3.5 h-3.5" />
           <span>下载 yt-dlp</span>
