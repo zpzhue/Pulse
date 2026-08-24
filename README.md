@@ -73,5 +73,21 @@ UI 以 `ytdlp-gui/` 目录下的设计稿为准（各独立页面 html）。注�
 - 外观面板与全局 `useTheme`（主题色 / 深浅模式）双向联动并持久化
 
 ## 待实现（后续阶段）
-- 阶段 6：接入真实下载引擎（yt-dlp 命令调用）
 - 阶段 7：状态 / 进度持久化 + 首页联动真实数据
+
+## 阶段 6：接入真实下载引擎（yt-dlp）
+### 后端（Rust / Tauri Command）
+- `src-tauri/src/ytdlp.rs`：yt-dlp 引擎封装，通过子进程调用 CLI
+  - `resolve_url`：`--dump-single-json --flat-playlist` 拉取元数据（标题 / 播放列表条目 / 作者），识别单视频或播放列表
+  - `start_download`：按格式 / 画质 / 路径 / 字幕 / 缩略图 / 代理构造参数，`--progress-template` 输出机器可读进度，经 `Channel` 实时推送事件（started / progress / finished / error）
+  - `ytdlp_version`：校验二进制可达性并返回版本（供设置页“测试连接”）
+- `src-tauri/src/lib.rs`：注册以上 `#[tauri::command]`
+
+### 前端
+- `src/services/ytdlp.ts`：封装 `invoke` 调用 + `Channel` 事件解析，持久化 yt-dlp 二进制路径（localStorage）
+- `NewDownloadView.vue`：接入真实解析（URL → 元数据填充播放列表 / 单视频），“开始下载 / 批量下载”触发真实下载任务并展示状态
+- `SettingsView.vue`：yt-dlp 面板“测试连接”校验路径并持久化
+
+### 说明
+- 进度流式上报 → 首页 Dashboard 联动真实数据属于阶段 7
+- 需要系统已安装 `yt-dlp`（默认 `yt-dlp`，可在设置页配置路径）

@@ -14,6 +14,7 @@ import {
   Github,
 } from "lucide-vue-next";
 import { useTheme } from "../composables/useTheme";
+import { checkVersion, getBinary, setBinary } from "../services/ytdlp";
 
 const { isDark, accent, accents, toggleDark, setAccent } = useTheme();
 
@@ -40,7 +41,28 @@ const filenameTemplate = ref("%(title)s.%(ext)s");
 const concurrent = ref(3);
 
 /* ---- yt-dlp 配置 ---- */
-const ytdlpPath = ref("/usr/local/bin/yt-dlp");
+const ytdlpPath = ref(getBinary());
+const ytdlpStatus = ref("");
+const ytdlpTesting = ref(false);
+
+async function persistAndTest() {
+  setBinary(ytdlpPath.value);
+  ytdlpStatus.value = "";
+  if (!ytdlpPath.value.trim()) {
+    ytdlpStatus.value = "路径不能为空";
+    return;
+  }
+  ytdlpTesting.value = true;
+  try {
+    const v = await checkVersion(ytdlpPath.value);
+    ytdlpStatus.value = `连接成功：yt-dlp ${v}`;
+  } catch (e) {
+    ytdlpStatus.value = `连接失败：${String(e)}`;
+  } finally {
+    ytdlpTesting.value = false;
+  }
+}
+
 const autoUpdate = ref(false);
 const proxyEnabled = ref(true);
 const proxyUrl = ref("http://127.0.0.1:7890");
@@ -279,11 +301,15 @@ const retryCount = ref(3);
         </div>
 
         <div class="st-item flex justify-end">
-          <button type="button" class="st-btn-secondary">
+          <button type="button" class="st-btn-secondary" :disabled="ytdlpTesting" @click="persistAndTest">
             <Zap class="w-3.5 h-3.5" />
-            <span>测试连接</span>
+            <span>{{ ytdlpTesting ? "测试中…" : "测试连接" }}</span>
           </button>
         </div>
+
+        <p v-if="ytdlpStatus" class="text-[13px] mt-2" :class="ytdlpStatus.includes('失败') ? 'text-[var(--state-error)]' : 'text-[var(--state-success)]'">
+          {{ ytdlpStatus }}
+        </p>
       </div>
 
       <!-- ============ 网络 ============ -->

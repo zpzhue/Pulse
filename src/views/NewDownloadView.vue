@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import {
+  Loader2,
   ScanLine,
   Link,
   ClipboardPaste,
@@ -22,6 +23,12 @@ import {
   Settings2,
   FileDown,
 } from "lucide-vue-next";
+import {
+  resolveUrl,
+  startDownload,
+  type ResolveResult,
+  type DownloadOptions,
+} from "../services/ytdlp";
 
 /* ---- 交互状态 ---- */
 const url = ref("https://www.youtube.com/playlist?list=PLrFn9SKbK2RvTnQ8mZkLp3Hx...");
@@ -50,24 +57,17 @@ interface PlaylistItem {
   format: string;
   selected: boolean;
 }
-const playlist: PlaylistItem[] = [
-  { no: "01", title: "Rust 基础语法", duration: "12:34", size: "320 MB", format: "MP4", selected: true },
-  { no: "02", title: "所有权与借用", duration: "8:45", size: "210 MB", format: "MP4", selected: true },
-  { no: "03", title: "生命周期详解", duration: "15:20", size: "380 MB", format: "MP4", selected: true },
-  { no: "04", title: "智能指针", duration: "18:50", size: "450 MB", format: "MP4", selected: false },
-  { no: "05", title: "错误处理", duration: "10:15", size: "260 MB", format: "MP4", selected: true },
-  { no: "06", title: "泛型与 Trait", duration: "22:30", size: "540 MB", format: "MP4", selected: true },
-  { no: "07", title: "并发编程", duration: "25:10", size: "610 MB", format: "MP4", selected: false },
-  { no: "08", title: "模块系统", duration: "9:20", size: "230 MB", format: "MP4", selected: true },
-  { no: "09", title: "宏编程入门", duration: "14:05", size: "350 MB", format: "MP4", selected: true },
-  { no: "10", title: "异步运行时", duration: "23:01", size: "560 MB", format: "MP4", selected: true },
-];
+const playlist = ref<PlaylistItem[]>([]);
+const playlistTitle = ref("");
+const playlistUploader = ref("");
+const playlistCount = ref(0);
+const playlistSize = ref("—");
 
-const selectedCount = computed(() => playlist.filter((i) => i.selected).length);
-const allSelected = computed(() => selectedCount.value === playlist.length);
+const selectedCount = computed(() => playlist.value.filter((i) => i.selected).length);
+const allSelected = computed(() => selectedCount.value === playlist.value.length);
 function toggleAll() {
   const next = !allSelected.value;
-  playlist.forEach((i) => (i.selected = next));
+  playlist.value.forEach((i) => (i.selected = next));
 }
 
 const batchQuality = ref("1080p");
@@ -77,6 +77,120 @@ const batchFormat = ref("MP4");
 const commonPath = ref("~/Downloads/Pulse/");
 const commonSubs = ref(true);
 const commonThumb = ref(false);
+
+/* ---- 解析 / 下载状态 ---- */
+const resolving = ref(false);
+const downloading = ref(false);
+const feedback = ref("");
+
+function formatDuration(sec: number | null): string {
+  if (!sec || Number.isNaN(sec) || sec <= 0) return "—";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function seedItems(entries: { id: string; title: string; duration: number | null }[]): PlaylistItem[] {
+  return entries.map((e, idx) => ({
+    no: String(idx + 1).padStart(2, "0"),
+    title: e.title,
+    duration: formatDuration(e.duration),
+    size: "—",
+    format: batchFormat.value,
+    selected: true,
+  }));
+}
+
+async function parseUrl() {
+  const target = url.value.trim();
+  if (!target) {
+    feedback.value = "请先粘贴下载链接";
+    return;
+  }
+  resolving.value = true;
+  feedback.value = "";
+  try {
+    const res: ResolveResult = await resolveUrl(target);
+    mode.value = res.kind === "playlist" ? "playlist" : "single";
+    playlistTitle.value = res.title;
+    playlistUploader.value = res.uploader;
+    playlistCount.value = res.count;
+    playlist.value = seedItems(res.entries);
+    if (res.kind !== "playlist") playlist.value = [];
+  } catch (e) {
+    feedback.value = `解析失败：${String(e)}`;
+  } finally {
+    resolving.value = false;
+  }
+}
+
+/** Map a UI format label ("MP4 视频/MP3 音频/WebM/MKV") to a yt-dlp token. */
+function mapFormat(label: string): string {
+  const lower = label.toLowerCase();
+  if (lower.includes("mp3") || lower.includes("audio")) return "mp3";
+  if (lower.includes("webm")) return "webm";
+  if (lower.includes("mkv")) return "mkv";
+  return "mp4";
+}
+
+function buildOptions(urlValue: string, fmt: string, q: string, path: string, subs: boolean, thumb: boolean): DownloadOptions {
+  return {
+    url: urlValue,
+    downloadPath: path,
+    format: mapFormat(fmt),
+    quality: q,
+    filenameTemplate: "%(title)s.%(ext)s",
+    subtitles: subs,
+    thumbnail: thumb,
+  };
+}
+
+async function startSingle() {
+  const target = url.value.trim();
+  if (!target) {
+    feedback.value = "请先粘贴下载链接";
+    return;
+  }
+  downloading.value = true;
+  feedback.value = "";
+  try {
+    await startDownload(
+      buildOptions(target, singleFormat.value, singleQuality.value, singlePath.value, singleSubs.value, singleThumb.value),
+      (ev) => {
+        if (ev.type === "error") feedback.value = `下载出错：${ev.message ?? ""}`;
+      },
+    );
+    feedback.value = "下载完成";
+  } catch (e) {
+    feedback.value = `下载失败：${String(e)}`;
+  } finally {
+    downloading.value = false;
+  }
+}
+
+async function startBatch() {
+  const selected = playlist.value.filter((i) => i.selected);
+  if (selected.length === 0) {
+    feedback.value = "请先勾选要下载的视频";
+    return;
+  }
+  // 播放列表整体批量下载：直接交给 yt-dlp 拉取整个列表（勾选用于 UI 展示）。
+  downloading.value = true;
+  feedback.value = "";
+  try {
+    await startDownload(
+      buildOptions(url.value.trim(), batchFormat.value, batchQuality.value, commonPath.value, commonSubs.value, commonThumb.value),
+      (ev) => {
+        if (ev.type === "error") feedback.value = `批量下载出错：${ev.message ?? ""}`;
+      },
+    );
+    feedback.value = "批量下载完成";
+  } catch (e) {
+    feedback.value = `批量下载失败：${String(e)}`;
+  } finally {
+    downloading.value = false;
+  }
+}
 </script>
 
 <template>
@@ -109,14 +223,25 @@ const commonThumb = ref(false);
       <div v-if="mode === 'playlist'" class="detect-bar mt-3">
         <ListVideo class="w-[18px] h-[18px] text-primary shrink-0" />
         <span class="text-[13px] font-medium text-foreground">检测到播放列表</span>
-        <span class="ydl-tag ydl-tag-cyan">12 个视频</span>
-        <span class="text-[12px] text-muted-foreground font-mono">约 4.2 GB</span>
+        <span class="ydl-tag ydl-tag-cyan">{{ playlistCount }} 个视频</span>
+        <span class="text-[12px] text-muted-foreground font-mono">{{ playlistSize }}</span>
         <div class="flex-1"></div>
-        <button type="button" class="ydl-btn-outline ydl-btn-sm">
-          <Search class="w-4 h-4" />
-          <span>解析</span>
+        <button
+          type="button"
+          class="ydl-btn-outline ydl-btn-sm"
+          :disabled="resolving"
+          @click="parseUrl"
+        >
+          <Loader2 v-if="resolving" class="w-4 h-4 animate-spin" />
+          <Search v-else class="w-4 h-4" />
+          <span>{{ resolving ? "解析中" : "解析" }}</span>
         </button>
       </div>
+
+      <!-- Feedback / status message -->
+      <p v-if="feedback" class="text-[13px] mt-3" :class="feedback.startsWith('下载') || feedback.includes('完成') ? 'text-primary' : 'text-[var(--state-error)]'">
+        {{ feedback }}
+      </p>
     </section>
 
     <!-- ============ Block 2A: Single Video Mode ============ -->
@@ -238,9 +363,15 @@ const commonThumb = ref(false);
 
       <!-- Action buttons -->
       <section class="flex items-stretch gap-3">
-        <button type="button" class="ydl-btn-primary flex-1 h-12 rounded-lg">
-          <Download class="w-[18px] h-[18px]" />
-          <span>开始下载</span>
+        <button
+          type="button"
+          class="ydl-btn-primary flex-1 h-12 rounded-lg"
+          :disabled="downloading"
+          @click="startSingle"
+        >
+          <Loader2 v-if="downloading" class="w-[18px] h-[18px] animate-spin" />
+          <Download v-else class="w-[18px] h-[18px]" />
+          <span>{{ downloading ? "下载中…" : "开始下载" }}</span>
         </button>
         <button type="button" class="ydl-btn-outline h-12 px-5 rounded-lg">
           <Bookmark class="w-[18px] h-[18px]" />
@@ -254,11 +385,11 @@ const commonThumb = ref(false);
       <!-- Info bar -->
       <div class="flex items-center justify-between gap-4 flex-wrap">
         <div class="flex items-center gap-5 flex-wrap">
-          <h2 class="text-[18px] font-semibold text-foreground">Rust 编程系列教程</h2>
+          <h2 class="text-[18px] font-semibold text-foreground">{{ playlistTitle || "播放列表" }}</h2>
           <div class="flex items-center gap-4 text-[13px] text-muted-foreground">
-            <span class="meta-pill"><ListVideo class="w-3.5 h-3.5" />12 个视频</span>
-            <span class="meta-pill font-mono"><HardDrive class="w-3.5 h-3.5" />约 4.2 GB</span>
-            <span class="meta-pill"><CircleUser class="w-3.5 h-3.5" />Tech with Tim</span>
+            <span class="meta-pill"><ListVideo class="w-3.5 h-3.5" />{{ playlistCount }} 个视频</span>
+            <span class="meta-pill font-mono"><HardDrive class="w-3.5 h-3.5" />{{ playlistSize }}</span>
+            <span class="meta-pill"><CircleUser class="w-3.5 h-3.5" />{{ playlistUploader || "未知作者" }}</span>
           </div>
         </div>
         <button
@@ -328,9 +459,15 @@ const commonThumb = ref(false);
           <FileDown class="w-4 h-4" />
           <span>导出列表</span>
         </button>
-        <button type="button" class="ydl-btn-primary ydl-btn-sm">
-          <Download class="w-4 h-4" />
-          <span>批量下载</span>
+        <button
+          type="button"
+          class="ydl-btn-primary ydl-btn-sm"
+          :disabled="downloading"
+          @click="startBatch"
+        >
+          <Loader2 v-if="downloading" class="w-4 h-4 animate-spin" />
+          <Download v-else class="w-4 h-4" />
+          <span>{{ downloading ? "下载中…" : "批量下载" }}</span>
         </button>
       </div>
     </section>
