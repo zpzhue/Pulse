@@ -1,54 +1,36 @@
 <script setup lang="ts">
-import { Download, CircleCheck, Gauge, HardDrive, Video, Clock, Pause, X, Plus } from "lucide-vue-next";
+import { computed } from "vue";
+import {
+  Download,
+  CircleCheck,
+  Gauge,
+  HardDrive,
+  Video,
+  Music,
+  Clock,
+  Pause,
+  X,
+  Plus,
+  Inbox,
+} from "lucide-vue-next";
+import {
+  useDownloads,
+  formatBytes,
+  formatSpeed,
+  formatEta,
+} from "../composables/useDownloads";
 
-/* 模拟统计数据（阶段 2 为前端状态驱动，后续可接真实下载引擎） */
-const stats = [
-  { icon: Download, accent: true, label: "正在下载", value: "3", unit: "" },
-  { icon: CircleCheck, accent: false, label: "已完成", value: "127", unit: "" },
-  { icon: Gauge, accent: false, label: "下载速度", value: "15.4", unit: "MB/s" },
-  { icon: HardDrive, accent: false, label: "磁盘占用", value: "42.8", unit: "GB" },
-];
+const { active, activeCount, completedCount, totalSpeed, diskUsage, removeActive } = useDownloads();
 
-/* 模拟进行中的下载任务 */
-interface DownloadTask {
-  title: string;
-  url: string;
-  downloaded: string;
-  total: string;
-  percent: number;
-  speed: string;
-  eta: string;
-}
+const speedMB = computed(() => (totalSpeed.value / 1048576).toFixed(1));
+const diskGB = computed(() => (diskUsage.value / 1073741824).toFixed(1));
 
-const downloads: DownloadTask[] = [
-  {
-    title: "Linux Kernel 编译教程 - Full Course",
-    url: "https://youtube.com/watch?v=linux-kernel-2025",
-    downloaded: "4.2 GB",
-    total: "6.3 GB",
-    percent: 67,
-    speed: "15.4 MB/s",
-    eta: "2m 15s",
-  },
-  {
-    title: "Rust 入门到实践（2025版）",
-    url: "https://youtube.com/watch?v=rust-practice-2025",
-    downloaded: "180 MB",
-    total: "780 MB",
-    percent: 23,
-    speed: "8.7 MB/s",
-    eta: "1m 8s",
-  },
-  {
-    title: "4K 城市夜景航拍合集",
-    url: "https://youtube.com/watch?v=4k-city-night",
-    downloaded: "2.1 GB",
-    total: "2.4 GB",
-    percent: 89,
-    speed: "12.1 MB/s",
-    eta: "24s",
-  },
-];
+const stats = computed(() => [
+  { icon: Download, accent: true, label: "正在下载", value: String(activeCount.value), unit: "" },
+  { icon: CircleCheck, accent: false, label: "已完成", value: String(completedCount.value), unit: "" },
+  { icon: Gauge, accent: false, label: "下载速度", value: speedMB.value, unit: "MB/s" },
+  { icon: HardDrive, accent: false, label: "磁盘占用", value: diskGB.value, unit: "GB" },
+]);
 </script>
 
 <template>
@@ -87,17 +69,26 @@ const downloads: DownloadTask[] = [
       </div>
     </div>
 
-    <!-- Download List: active downloads -->
-    <div class="flex flex-col gap-4">
+    <!-- Download List: active downloads from the shared store -->
+    <div v-if="active.length === 0" class="bg-card border border-border rounded-lg py-16 text-center">
+      <Inbox class="w-8 h-8 mx-auto mb-3 text-muted-foreground opacity-60" />
+      <p class="text-[13px] text-muted-foreground">当前没有进行中的下载任务</p>
+      <RouterLink to="/new-download" class="inline-block mt-3 text-[13px] text-primary hover:underline underline-offset-4">
+        去新建下载 →
+      </RouterLink>
+    </div>
+
+    <div v-else class="flex flex-col gap-4">
       <div
-        v-for="d in downloads"
-        :key="d.url"
+        v-for="d in active"
+        :key="d.id"
         class="bg-card border border-border rounded-lg p-4"
       >
         <div class="flex items-start gap-4">
           <!-- Thumbnail -->
           <div class="w-20 h-12 rounded bg-muted flex items-center justify-center shrink-0">
-            <Video class="w-5 h-5 text-muted-foreground" />
+            <Music v-if="d.kind === 'audio'" class="w-5 h-5 text-muted-foreground" />
+            <Video v-else class="w-5 h-5 text-muted-foreground" />
           </div>
 
           <!-- Content -->
@@ -108,13 +99,15 @@ const downloads: DownloadTask[] = [
             <!-- Progress -->
             <div class="mt-3">
               <div class="flex items-center justify-between mb-1.5">
-                <span class="font-mono text-[12px] text-muted-foreground">{{ d.downloaded }} / {{ d.total }}</span>
-                <span class="font-mono text-[12px] text-primary font-medium">{{ d.percent }}%</span>
+                <span class="font-mono text-[12px] text-muted-foreground">
+                  {{ formatBytes(d.downloadedBytes) }} / {{ d.totalBytes != null ? formatBytes(d.totalBytes) : "未知" }}
+                </span>
+                <span class="font-mono text-[12px] text-primary font-medium tabular-nums">{{ d.percent }}%</span>
               </div>
               <div class="h-2 rounded-full bg-muted overflow-hidden">
                 <div
                   class="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-                  :style="{ width: d.percent + '%' }"
+                  :style="{ width: (d.status === 'pending' ? 0 : d.percent) + '%' }"
                 ></div>
               </div>
             </div>
@@ -123,11 +116,11 @@ const downloads: DownloadTask[] = [
             <div class="flex items-center gap-4 mt-2">
               <span class="text-[12px] text-muted-foreground flex items-center gap-1">
                 <Gauge class="w-3 h-3" />
-                <span class="font-mono">{{ d.speed }}</span>
+                <span class="font-mono">{{ d.status === 'pending' ? '等待中…' : formatSpeed(d.speed) }}</span>
               </span>
               <span class="text-[12px] text-muted-foreground flex items-center gap-1">
                 <Clock class="w-3 h-3" />
-                <span class="font-mono">ETA {{ d.eta }}</span>
+                <span class="font-mono">ETA {{ formatEta(d.eta) }}</span>
               </span>
             </div>
           </div>
@@ -143,6 +136,7 @@ const downloads: DownloadTask[] = [
             <button
               class="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
               aria-label="取消"
+              @click="removeActive(d.id)"
             >
               <X class="w-4 h-4" />
             </button>

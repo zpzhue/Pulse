@@ -25,10 +25,11 @@ import {
 } from "lucide-vue-next";
 import {
   resolveUrl,
-  startDownload,
   type ResolveResult,
-  type DownloadOptions,
 } from "../services/ytdlp";
+import { useDownloads } from "../composables/useDownloads";
+
+const { start: startTask } = useDownloads();
 
 /* ---- 交互状态 ---- */
 const url = ref("https://www.youtube.com/playlist?list=PLrFn9SKbK2RvTnQ8mZkLp3Hx...");
@@ -80,7 +81,6 @@ const commonThumb = ref(false);
 
 /* ---- 解析 / 下载状态 ---- */
 const resolving = ref(false);
-const downloading = ref(false);
 const feedback = ref("");
 
 function formatDuration(sec: number | null): string {
@@ -133,39 +133,25 @@ function mapFormat(label: string): string {
   return "mp4";
 }
 
-function buildOptions(urlValue: string, fmt: string, q: string, path: string, subs: boolean, thumb: boolean): DownloadOptions {
-  return {
-    url: urlValue,
-    downloadPath: path,
-    format: mapFormat(fmt),
-    quality: q,
-    filenameTemplate: "%(title)s.%(ext)s",
-    subtitles: subs,
-    thumbnail: thumb,
-  };
-}
-
 async function startSingle() {
   const target = url.value.trim();
   if (!target) {
     feedback.value = "请先粘贴下载链接";
     return;
   }
-  downloading.value = true;
-  feedback.value = "";
-  try {
-    await startDownload(
-      buildOptions(target, singleFormat.value, singleQuality.value, singlePath.value, singleSubs.value, singleThumb.value),
-      (ev) => {
-        if (ev.type === "error") feedback.value = `下载出错：${ev.message ?? ""}`;
-      },
-    );
-    feedback.value = "下载完成";
-  } catch (e) {
-    feedback.value = `下载失败：${String(e)}`;
-  } finally {
-    downloading.value = false;
-  }
+  feedback.value = "已加入下载队列";
+  const title = await tryResolveTitle(target);
+  await startTask({
+    url: target,
+    title,
+    kind: singleFormat.value.includes("MP3") ? "audio" : "video",
+    format: mapFormat(singleFormat.value),
+    downloadPath: singlePath.value,
+    quality: singleQuality.value,
+    filenameTemplate: "%(title)s.%(ext)s",
+    subtitles: singleSubs.value,
+    thumbnail: singleThumb.value,
+  });
 }
 
 async function startBatch() {
@@ -174,21 +160,28 @@ async function startBatch() {
     feedback.value = "请先勾选要下载的视频";
     return;
   }
+  feedback.value = "已加入下载队列";
   // 播放列表整体批量下载：直接交给 yt-dlp 拉取整个列表（勾选用于 UI 展示）。
-  downloading.value = true;
-  feedback.value = "";
+  await startTask({
+    url: url.value.trim(),
+    title: playlistTitle.value || "播放列表",
+    kind: batchFormat.value.includes("MP3") ? "audio" : "video",
+    format: mapFormat(batchFormat.value),
+    downloadPath: commonPath.value,
+    quality: batchQuality.value,
+    filenameTemplate: "%(title)s.%(ext)s",
+    subtitles: commonSubs.value,
+    thumbnail: commonThumb.value,
+  });
+}
+
+/** Best-effort title resolution; never blocks the button on a failure. */
+async function tryResolveTitle(target: string): Promise<string | undefined> {
   try {
-    await startDownload(
-      buildOptions(url.value.trim(), batchFormat.value, batchQuality.value, commonPath.value, commonSubs.value, commonThumb.value),
-      (ev) => {
-        if (ev.type === "error") feedback.value = `批量下载出错：${ev.message ?? ""}`;
-      },
-    );
-    feedback.value = "批量下载完成";
-  } catch (e) {
-    feedback.value = `批量下载失败：${String(e)}`;
-  } finally {
-    downloading.value = false;
+    const r = await resolveUrl(target);
+    return r.title;
+  } catch {
+    return undefined;
   }
 }
 </script>
@@ -239,7 +232,7 @@ async function startBatch() {
       </div>
 
       <!-- Feedback / status message -->
-      <p v-if="feedback" class="text-[13px] mt-3" :class="feedback.startsWith('下载') || feedback.includes('完成') ? 'text-primary' : 'text-[var(--state-error)]'">
+      <p v-if="feedback" class="text-[13px] mt-3" :class="feedback.includes('失败') ? 'text-[var(--state-error)]' : 'text-primary'">
         {{ feedback }}
       </p>
     </section>
@@ -366,12 +359,10 @@ async function startBatch() {
         <button
           type="button"
           class="ydl-btn-primary flex-1 h-12 rounded-lg"
-          :disabled="downloading"
           @click="startSingle"
         >
-          <Loader2 v-if="downloading" class="w-[18px] h-[18px] animate-spin" />
-          <Download v-else class="w-[18px] h-[18px]" />
-          <span>{{ downloading ? "下载中…" : "开始下载" }}</span>
+          <Download class="w-[18px] h-[18px]" />
+          <span>开始下载</span>
         </button>
         <button type="button" class="ydl-btn-outline h-12 px-5 rounded-lg">
           <Bookmark class="w-[18px] h-[18px]" />
@@ -462,12 +453,10 @@ async function startBatch() {
         <button
           type="button"
           class="ydl-btn-primary ydl-btn-sm"
-          :disabled="downloading"
           @click="startBatch"
         >
-          <Loader2 v-if="downloading" class="w-4 h-4 animate-spin" />
-          <Download v-else class="w-4 h-4" />
-          <span>{{ downloading ? "下载中…" : "批量下载" }}</span>
+          <Download class="w-4 h-4" />
+          <span>批量下载</span>
         </button>
       </div>
     </section>

@@ -91,3 +91,16 @@ UI 以 `ytdlp-gui/` 目录下的设计稿为准（各独立页面 html）。注�
 ### 说明
 - 进度流式上报 → 首页 Dashboard 联动真实数据属于阶段 7
 - 需要系统已安装 `yt-dlp`（默认 `yt-dlp`，可在设置页配置路径）
+
+## 阶段 7：状态 / 进度持久化 + 首页联动真实数据
+### 全局下载状态（Store）
+- `src/composables/useDownloads.ts`：单例组合式状态，统一管理下载任务生命周期与真实子进程
+  - `start()`：入队真实下载，标题自动解析，进度/速度/ETA 实时写入任务
+  - `active`：进行中任务（内存态，随真实进度更新）
+  - `history`：已完成 / 失败任务（深度 `watch` 自动持久化到 localStorage，保留最近 200 条）
+  - 聚合统计：`activeCount` / `completedCount` / `totalSpeed` / `diskUsage` 及格式化工具
+
+### 页面联动
+- `DashboardView.vue`：去掉模拟数据，改为渲染真实 `active` 任务列表 + 动态统计卡（进行中数 / 完成数 / 实时总速度 / 磁盘占用），空态引导新建下载
+- `HistoryView.vue`：改为读取持久化的 `history`，展示完成 / 失败记录，支持搜索、类型过滤、删除
+- `NewDownloadView.vue`：下载按钮改走 Store 入队，反馈“已加入下载队列”，任务在后台异步下载，首页实时可见
