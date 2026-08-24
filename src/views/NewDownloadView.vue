@@ -1,10 +1,844 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { ref, computed } from "vue";
+import {
+  ScanLine,
+  Link,
+  ClipboardPaste,
+  ListVideo,
+  ChevronDown,
+  Video,
+  Folder,
+  FolderOpen,
+  SlidersHorizontal,
+  Captions,
+  Image,
+  FileStack,
+  Download,
+  Bookmark,
+  Search,
+  Play,
+  HardDrive,
+  CircleUser,
+  Settings2,
+  FileDown,
+} from "lucide-vue-next";
+
+/* ---- 交互状态 ---- */
+const url = ref("https://www.youtube.com/playlist?list=PLrFn9SKbK2RvTnQ8mZkLp3Hx...");
+const mode = ref<"single" | "playlist">("playlist");
+
+/* URL 变化时粗略识别类型 */
+function detectMode() {
+  mode.value =
+    url.value.includes("playlist") || url.value.includes("list=") ? "playlist" : "single";
+}
+
+/* ---- 单视频模式选项 ---- */
+const singleFormat = ref("MP4 视频");
+const singleQuality = ref("1080p");
+const singlePath = ref("~/Downloads/Pulse/");
+const singleSubs = ref(true);
+const singleThumb = ref(false);
+const singleKeepFormat = ref(false);
+
+/* ---- 播放列表数据 ---- */
+interface PlaylistItem {
+  no: string;
+  title: string;
+  duration: string;
+  size: string;
+  format: string;
+  selected: boolean;
+}
+const playlist: PlaylistItem[] = [
+  { no: "01", title: "Rust 基础语法", duration: "12:34", size: "320 MB", format: "MP4", selected: true },
+  { no: "02", title: "所有权与借用", duration: "8:45", size: "210 MB", format: "MP4", selected: true },
+  { no: "03", title: "生命周期详解", duration: "15:20", size: "380 MB", format: "MP4", selected: true },
+  { no: "04", title: "智能指针", duration: "18:50", size: "450 MB", format: "MP4", selected: false },
+  { no: "05", title: "错误处理", duration: "10:15", size: "260 MB", format: "MP4", selected: true },
+  { no: "06", title: "泛型与 Trait", duration: "22:30", size: "540 MB", format: "MP4", selected: true },
+  { no: "07", title: "并发编程", duration: "25:10", size: "610 MB", format: "MP4", selected: false },
+  { no: "08", title: "模块系统", duration: "9:20", size: "230 MB", format: "MP4", selected: true },
+  { no: "09", title: "宏编程入门", duration: "14:05", size: "350 MB", format: "MP4", selected: true },
+  { no: "10", title: "异步运行时", duration: "23:01", size: "560 MB", format: "MP4", selected: true },
+];
+
+const selectedCount = computed(() => playlist.filter((i) => i.selected).length);
+const allSelected = computed(() => selectedCount.value === playlist.length);
+function toggleAll() {
+  const next = !allSelected.value;
+  playlist.forEach((i) => (i.selected = next));
+}
+
+const batchQuality = ref("1080p");
+const batchFormat = ref("MP4");
+
+/* ---- 通用选项 ---- */
+const commonPath = ref("~/Downloads/Pulse/");
+const commonSubs = ref(true);
+const commonThumb = ref(false);
+</script>
 
 <template>
-  <div class="flex h-full min-h-[60vh] items-center justify-center">
-    <div class="max-w-sm text-center">
-      <h2 class="text-h2 text-foreground">新建下载</h2>
-      <p class="mt-2 text-body-sm text-muted-foreground">阶段 3 将在这里实现 URL 智能识别与下载选项。</p>
-    </div>
+  <div class="max-w-[720px] mx-auto flex flex-col gap-5">
+    <!-- ============ Block 1: URL Input + Smart Detection ============ -->
+    <section class="ydl-panel">
+      <p class="text-[13px] text-muted-foreground mb-4 flex items-center gap-2">
+        <ScanLine class="w-4 h-4" />
+        <span>粘贴视频或播放列表链接，自动识别类型</span>
+      </p>
+
+      <div class="flex items-stretch gap-2">
+        <div class="relative flex-1">
+          <Link class="w-[18px] h-[18px] absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <input
+            v-model="url"
+            @input="detectMode"
+            type="text"
+            placeholder="粘贴视频或播放列表链接"
+            class="ydl-input pl-10 pr-3 h-12 font-mono"
+          />
+        </div>
+        <button type="button" class="ydl-btn-ghost px-4 h-12 rounded-lg" aria-label="粘贴链接">
+          <ClipboardPaste class="w-4 h-4" />
+          <span>粘贴</span>
+        </button>
+      </div>
+
+      <!-- Smart detection result bar -->
+      <div v-if="mode === 'playlist'" class="detect-bar mt-3">
+        <ListVideo class="w-[18px] h-[18px] text-primary shrink-0" />
+        <span class="text-[13px] font-medium text-foreground">检测到播放列表</span>
+        <span class="ydl-tag ydl-tag-cyan">12 个视频</span>
+        <span class="text-[12px] text-muted-foreground font-mono">约 4.2 GB</span>
+        <div class="flex-1"></div>
+        <button type="button" class="ydl-btn-outline ydl-btn-sm">
+          <Search class="w-4 h-4" />
+          <span>解析</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ Block 2A: Single Video Mode ============ -->
+    <section v-if="mode === 'single'" class="ydl-panel">
+      <div class="ydl-section-title">
+        <Video class="w-[18px] h-[18px] text-muted-foreground" />
+        <h2 class="text-[16px] font-semibold text-foreground">下载选项</h2>
+        <span class="ydl-tag ydl-tag-cyan">单视频模式</span>
+      </div>
+
+      <!-- Format select -->
+      <div class="mb-5">
+        <label class="ydl-label">输出格式</label>
+        <div class="relative">
+          <select v-model="singleFormat" class="ydl-select">
+            <option>MP4 视频</option>
+            <option>MP3 音频</option>
+            <option>WebM</option>
+            <option>MKV</option>
+          </select>
+          <ChevronDown class="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        </div>
+      </div>
+
+      <!-- Quality cards 2x2 -->
+      <div class="mb-5">
+        <label class="ydl-label">画质选择</label>
+        <div class="ydl-quality-grid">
+          <label
+            v-for="q in [
+              { v: '4k', name: '4K', sub: '2160p · 超高清', size: '~2.4 GB', rec: false },
+              { v: '1080p', name: '1080p', sub: '全高清', size: '~780 MB', rec: true },
+              { v: '720p', name: '720p', sub: '高清', size: '~420 MB', rec: false },
+              { v: '480p', name: '480p', sub: '标清', size: '~180 MB', rec: false },
+            ]"
+            :key="q.v"
+            class="ydl-q-card"
+          >
+            <input type="radio" name="single-quality" :value="q.v" v-model="singleQuality" />
+            <div class="ydl-q-inner">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-[14px] font-semibold text-foreground">{{ q.name }}</span>
+                <span class="ydl-q-radio"></span>
+              </div>
+              <div class="text-[12px] text-muted-foreground">{{ q.sub }}</div>
+              <div class="flex items-center gap-2 mt-1">
+                <span v-if="q.rec" class="ydl-badge">推荐</span>
+                <span class="font-mono text-[12px] text-muted-foreground">{{ q.size }}</span>
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Save path -->
+      <div class="mb-5">
+        <label class="ydl-label">保存位置</label>
+        <div class="flex items-stretch gap-2">
+          <div class="relative flex-1">
+            <Folder class="w-[18px] h-[18px] absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <input v-model="singlePath" type="text" class="ydl-input pl-10 pr-3 h-11 font-mono" />
+          </div>
+          <button type="button" class="ydl-btn-ghost px-4 h-11 rounded-lg" aria-label="浏览文件夹">
+            <FolderOpen class="w-4 h-4" />
+            <span>浏览</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Advanced options -->
+      <details class="ydl-details mb-5" open>
+        <summary>
+          <SlidersHorizontal class="w-[18px] h-[18px] text-muted-foreground" />
+          <span>高级选项</span>
+          <ChevronDown class="w-4 h-4 ydl-details-chevron text-muted-foreground" />
+        </summary>
+        <div class="ydl-details-body">
+          <div class="ydl-toggle-row">
+            <div class="flex items-center gap-3">
+              <Captions class="w-[18px] h-[18px] text-muted-foreground" />
+              <div>
+                <div class="text-[14px] text-foreground">下载字幕</div>
+                <div class="text-[12px] text-muted-foreground">自动获取可用字幕</div>
+              </div>
+            </div>
+            <label class="ydl-toggle">
+              <input type="checkbox" v-model="singleSubs" aria-label="下载字幕" />
+              <span class="ydl-toggle-track"><span class="ydl-toggle-thumb"></span></span>
+            </label>
+          </div>
+          <div class="ydl-toggle-row">
+            <div class="flex items-center gap-3">
+              <Image class="w-[18px] h-[18px] text-muted-foreground" />
+              <div>
+                <div class="text-[14px] text-foreground">下载缩略图</div>
+                <div class="text-[12px] text-muted-foreground">保存视频封面图片</div>
+              </div>
+            </div>
+            <label class="ydl-toggle">
+              <input type="checkbox" v-model="singleThumb" aria-label="下载缩略图" />
+              <span class="ydl-toggle-track"><span class="ydl-toggle-thumb"></span></span>
+            </label>
+          </div>
+          <div class="ydl-toggle-row">
+            <div class="flex items-center gap-3">
+              <FileStack class="w-[18px] h-[18px] text-muted-foreground" />
+              <div>
+                <div class="text-[14px] text-foreground">保留原始格式</div>
+                <div class="text-[12px] text-muted-foreground">不进行格式转换</div>
+              </div>
+            </div>
+            <label class="ydl-toggle">
+              <input type="checkbox" v-model="singleKeepFormat" aria-label="保留原始格式" />
+              <span class="ydl-toggle-track"><span class="ydl-toggle-thumb"></span></span>
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <!-- Action buttons -->
+      <section class="flex items-stretch gap-3">
+        <button type="button" class="ydl-btn-primary flex-1 h-12 rounded-lg">
+          <Download class="w-[18px] h-[18px]" />
+          <span>开始下载</span>
+        </button>
+        <button type="button" class="ydl-btn-outline h-12 px-5 rounded-lg">
+          <Bookmark class="w-[18px] h-[18px]" />
+          <span>保存为预设</span>
+        </button>
+      </section>
+    </section>
+
+    <!-- ============ Block 2B: Playlist Mode ============ -->
+    <section v-else class="flex flex-col gap-4">
+      <!-- Info bar -->
+      <div class="flex items-center justify-between gap-4 flex-wrap">
+        <div class="flex items-center gap-5 flex-wrap">
+          <h2 class="text-[18px] font-semibold text-foreground">Rust 编程系列教程</h2>
+          <div class="flex items-center gap-4 text-[13px] text-muted-foreground">
+            <span class="meta-pill"><ListVideo class="w-3.5 h-3.5" />12 个视频</span>
+            <span class="meta-pill font-mono"><HardDrive class="w-3.5 h-3.5" />约 4.2 GB</span>
+            <span class="meta-pill"><CircleUser class="w-3.5 h-3.5" />Tech with Tim</span>
+          </div>
+        </div>
+        <button
+          type="button"
+          @click="toggleAll"
+          class="text-[13px] text-primary hover:underline underline-offset-4 font-medium whitespace-nowrap"
+        >
+          全选 / 取消全选
+        </button>
+      </div>
+
+      <!-- Video list table -->
+      <div class="bg-card border border-border rounded-[var(--radius-lg)] overflow-hidden">
+        <div class="pl-head">
+          <span></span>
+          <span>#</span>
+          <span>缩略图</span>
+          <span>标题</span>
+          <span>时长</span>
+          <span>大小</span>
+          <span>格式</span>
+          <span>状态</span>
+        </div>
+        <div>
+          <label
+            v-for="row in playlist"
+            :key="row.no"
+            class="pl-row"
+            :data-selected="row.selected"
+          >
+            <input type="checkbox" class="ydl-check" v-model="row.selected" />
+            <span class="font-mono text-[12px] text-muted-foreground">{{ row.no }}</span>
+            <div class="thumb"><Play class="w-3.5 h-3.5" /></div>
+            <span class="text-[14px] text-foreground truncate">{{ row.title }}</span>
+            <span class="font-mono text-[13px] text-muted-foreground">{{ row.duration }}</span>
+            <span class="font-mono text-[13px] text-muted-foreground">{{ row.size }}</span>
+            <span class="ydl-tag">{{ row.format }}</span>
+            <span class="text-[12px] text-muted-foreground">待下载</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Batch action toolbar -->
+      <div class="batch-bar flex-wrap">
+        <span class="text-[13px] text-foreground font-medium whitespace-nowrap">
+          已选择 <span class="text-primary font-mono">{{ selectedCount }}</span>
+          <span class="text-muted-foreground">/</span> <span class="font-mono">{{ playlist.length }}</span> 项
+        </span>
+        <div class="flex-1 min-w-[12px]"></div>
+        <div class="select-wrap">
+          <select v-model="batchQuality" class="ydl-select-sm" aria-label="清晰度">
+            <option>1080p</option>
+            <option>720p</option>
+            <option>480p</option>
+          </select>
+          <span class="chev"><ChevronDown class="w-3.5 h-3.5" /></span>
+        </div>
+        <div class="select-wrap">
+          <select v-model="batchFormat" class="ydl-select-sm" aria-label="格式">
+            <option>MP4</option>
+            <option>MP3</option>
+            <option>WebM</option>
+          </select>
+          <span class="chev"><ChevronDown class="w-3.5 h-3.5" /></span>
+        </div>
+        <button type="button" class="ydl-btn-outline ydl-btn-sm">
+          <FileDown class="w-4 h-4" />
+          <span>导出列表</span>
+        </button>
+        <button type="button" class="ydl-btn-primary ydl-btn-sm">
+          <Download class="w-4 h-4" />
+          <span>批量下载</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ Block 3: Quick Unified Options ============ -->
+    <section class="ydl-panel-sm">
+      <div class="flex items-center gap-2.5 mb-4">
+        <Settings2 class="w-[18px] h-[18px] text-muted-foreground" />
+        <h3 class="text-[15px] font-semibold text-foreground">通用快速选项</h3>
+        <span class="ydl-tag">影响所有选中项</span>
+      </div>
+
+      <!-- Universal save path -->
+      <div class="mb-4">
+        <label class="ydl-label">通用保存路径</label>
+        <div class="flex items-stretch gap-2">
+          <div class="relative flex-1">
+            <Folder class="w-[18px] h-[18px] absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <input v-model="commonPath" type="text" class="ydl-input pl-10 pr-3 h-11 font-mono" />
+          </div>
+          <button type="button" class="ydl-btn-ghost px-4 h-11 rounded-lg" aria-label="浏览文件夹">
+            <FolderOpen class="w-4 h-4" />
+            <span>浏览</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Advanced options collapse -->
+      <details class="ydl-details" open>
+        <summary>
+          <SlidersHorizontal class="w-[18px] h-[18px] text-muted-foreground" />
+          <span>高级选项</span>
+          <ChevronDown class="w-4 h-4 ydl-details-chevron text-muted-foreground" />
+        </summary>
+        <div class="ydl-details-body">
+          <div class="ydl-toggle-row">
+            <div class="flex items-center gap-3">
+              <Captions class="w-[18px] h-[18px] text-muted-foreground" />
+              <div>
+                <div class="text-[14px] text-foreground">下载字幕</div>
+                <div class="text-[12px] text-muted-foreground">为所有选中视频获取字幕</div>
+              </div>
+            </div>
+            <label class="ydl-toggle">
+              <input type="checkbox" v-model="commonSubs" aria-label="下载字幕" />
+              <span class="ydl-toggle-track"><span class="ydl-toggle-thumb"></span></span>
+            </label>
+          </div>
+          <div class="ydl-toggle-row">
+            <div class="flex items-center gap-3">
+              <Image class="w-[18px] h-[18px] text-muted-foreground" />
+              <div>
+                <div class="text-[14px] text-foreground">下载缩略图</div>
+                <div class="text-[12px] text-muted-foreground">为所有选中视频保存封面</div>
+              </div>
+            </div>
+            <label class="ydl-toggle">
+              <input type="checkbox" v-model="commonThumb" aria-label="下载缩略图" />
+              <span class="ydl-toggle-track"><span class="ydl-toggle-thumb"></span></span>
+            </label>
+          </div>
+        </div>
+      </details>
+    </section>
   </div>
 </template>
+
+<style scoped>
+/* ===== 组件样式（来自 ytdlp-gui 设计稿） ===== */
+.ydl-panel {
+  background: var(--ydl-card);
+  border: 1px solid var(--ydl-border);
+  border-radius: 16px;
+  padding: 24px;
+}
+.ydl-panel-sm {
+  background: var(--ydl-card);
+  border: 1px solid var(--ydl-border);
+  border-radius: 16px;
+  padding: 18px;
+}
+.ydl-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ydl-foreground);
+  margin-bottom: 8px;
+}
+.ydl-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+/* Inputs */
+.ydl-input {
+  width: 100%;
+  background: var(--ydl-card);
+  border: 1px solid var(--ydl-border);
+  border-radius: 8px;
+  color: var(--ydl-foreground);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  transition: border-color 160ms, box-shadow 160ms;
+}
+.ydl-input::placeholder {
+  color: var(--ydl-muted-foreground);
+}
+.ydl-input:hover {
+  border-color: var(--ydl-muted-foreground);
+}
+.ydl-input:focus {
+  outline: none;
+  border-color: var(--ydl-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ydl-ring) 22%, transparent);
+}
+
+/* Select */
+.ydl-select {
+  width: 100%;
+  height: 44px;
+  background: var(--ydl-card);
+  border: 1px solid var(--ydl-border);
+  border-radius: 8px;
+  color: var(--ydl-foreground);
+  font-size: 14px;
+  padding: 0 36px 0 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: border-color 160ms, box-shadow 160ms;
+}
+.ydl-select:hover {
+  border-color: var(--ydl-muted-foreground);
+}
+.ydl-select:focus {
+  outline: none;
+  border-color: var(--ydl-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ydl-ring) 22%, transparent);
+}
+.ydl-select option {
+  background: var(--ydl-card);
+  color: var(--ydl-foreground);
+}
+
+/* Inline select wrap (batch bar) */
+.select-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.select-wrap .ydl-select-sm {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--ydl-muted);
+  border: 1px solid var(--ydl-border);
+  color: var(--ydl-foreground);
+  font-size: 13px;
+  padding: 7px 30px 7px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  height: 36px;
+  transition: border-color 140ms;
+}
+.select-wrap .ydl-select-sm:hover {
+  border-color: var(--ydl-muted-foreground);
+}
+.select-wrap .chev {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--ydl-muted-foreground);
+  display: inline-flex;
+}
+
+/* Buttons */
+.ydl-btn-primary {
+  background: var(--ydl-primary);
+  color: var(--ydl-primary-foreground);
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: opacity 160ms, transform 160ms;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.ydl-btn-primary:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+.ydl-btn-primary:active {
+  transform: translateY(0);
+  opacity: 1;
+}
+.ydl-btn-outline {
+  background: transparent;
+  border: 1px solid var(--ydl-border);
+  color: var(--ydl-foreground);
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 160ms, background 160ms;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.ydl-btn-outline:hover {
+  border-color: var(--ydl-primary);
+  background: var(--ydl-muted);
+}
+.ydl-btn-ghost {
+  background: var(--ydl-muted);
+  border: 1px solid var(--ydl-border);
+  color: var(--ydl-foreground);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 160ms;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.ydl-btn-ghost:hover {
+  background: var(--ydl-surface-2);
+}
+.ydl-btn-sm {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+/* Quality cards */
+.ydl-quality-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 639px) {
+  .ydl-quality-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.ydl-q-card {
+  display: flex;
+  cursor: pointer;
+  position: relative;
+}
+.ydl-q-card input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.ydl-q-inner {
+  flex: 1;
+  border: 1px solid var(--ydl-border);
+  border-radius: 8px;
+  padding: 12px;
+  transition: border-color 160ms, background 160ms;
+}
+.ydl-q-card:hover .ydl-q-inner {
+  border-color: var(--ydl-muted-foreground);
+}
+.ydl-q-card input:checked ~ .ydl-q-inner {
+  border-color: var(--ydl-primary);
+  background: color-mix(in srgb, var(--ydl-primary) 8%, transparent);
+}
+.ydl-q-radio {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid var(--ydl-border);
+  flex-shrink: 0;
+  transition: border-color 160ms, background 160ms;
+}
+.ydl-q-card input:checked ~ .ydl-q-inner .ydl-q-radio {
+  border-color: var(--ydl-primary);
+  background: radial-gradient(circle, var(--ydl-primary) 0 3.5px, transparent 4px);
+}
+.ydl-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ydl-primary) 15%, transparent);
+  color: var(--ydl-primary);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* Toggle */
+.ydl-toggle {
+  display: inline-flex;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+.ydl-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.ydl-toggle-track {
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--ydl-surface-3);
+  position: relative;
+  transition: background-color 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ydl-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--ydl-foreground);
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1), background-color 160ms;
+}
+.ydl-toggle input:checked ~ .ydl-toggle-track {
+  background: var(--ydl-primary);
+}
+.ydl-toggle input:checked ~ .ydl-toggle-track .ydl-toggle-thumb {
+  transform: translateX(20px);
+  background: var(--ydl-primary-foreground);
+}
+
+/* Details */
+.ydl-details > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--ydl-border);
+  border-radius: 8px;
+  background: var(--ydl-muted);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ydl-foreground);
+  transition: background 160ms;
+}
+.ydl-details > summary:hover {
+  background: var(--ydl-surface-2);
+}
+.ydl-details-chevron {
+  margin-left: auto;
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ydl-details[open] > summary .ydl-details-chevron {
+  transform: rotate(180deg);
+}
+.ydl-details-body {
+  padding: 8px 4px 4px;
+}
+.ydl-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 8px;
+}
+.ydl-toggle-row + .ydl-toggle-row {
+  border-top: 1px solid var(--ydl-border);
+}
+
+/* Custom Checkbox */
+.ydl-check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--ydl-border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  margin: 0;
+  transition: background-color 140ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ydl-check:hover {
+  border-color: var(--ydl-primary);
+}
+.ydl-check:checked {
+  background: var(--ydl-primary);
+  border-color: var(--ydl-primary);
+}
+.ydl-check:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--ydl-primary-foreground);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* Playlist table */
+.pl-head,
+.pl-row {
+  display: grid;
+  grid-template-columns: 28px 32px 56px minmax(0, 1fr) 56px 64px 52px 68px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+.pl-head {
+  font-size: 11px;
+  color: var(--ydl-muted-foreground);
+  border-bottom: 1px solid var(--ydl-border);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--ydl-surface-2);
+}
+.pl-row {
+  border-bottom: 1px solid var(--ydl-border);
+  transition: background-color 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  cursor: pointer;
+}
+.pl-row:last-child {
+  border-bottom: none;
+}
+.pl-row:hover {
+  background: var(--ydl-muted);
+}
+.pl-row[data-selected="true"] {
+  background: color-mix(in srgb, var(--ydl-primary) 5%, transparent);
+  box-shadow: inset 2px 0 0 var(--ydl-primary);
+}
+.pl-row[data-selected="true"]:hover {
+  background: color-mix(in srgb, var(--ydl-primary) 9%, transparent);
+}
+
+/* Thumbnail placeholder */
+.thumb {
+  width: 48px;
+  height: 32px;
+  border-radius: 4px;
+  background: var(--ydl-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ydl-muted-foreground);
+  flex-shrink: 0;
+}
+
+/* Tag */
+.ydl-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: var(--ydl-muted);
+  color: var(--ydl-muted-foreground);
+  line-height: 1.4;
+}
+.ydl-tag-cyan {
+  background: color-mix(in srgb, var(--ydl-primary) 18%, transparent);
+  color: var(--ydl-primary);
+}
+
+/* Meta pill */
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Smart detection bar */
+.detect-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--ydl-primary) 10%, transparent);
+}
+
+/* Sticky batch toolbar */
+.batch-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--ydl-card);
+  border: 1px solid var(--ydl-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-float);
+}
+</style>
