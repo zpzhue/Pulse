@@ -281,3 +281,55 @@ pub fn version(binary: Option<String>) -> Result<String, String> {
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
 }
+
+/* ------------------------------------------------------------------ */
+/*  Detection                                                          */
+/* ------------------------------------------------------------------ */
+
+#[derive(Serialize)]
+pub struct Detection {
+    pub path: String,
+    pub version: String,
+}
+
+fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("USERPROFILE").map(std::path::PathBuf::from))
+}
+
+/// Candidate yt-dlp locations to probe, in priority order.
+fn candidates(home: Option<&std::path::Path>) -> Vec<String> {
+    #[allow(unused_mut)]
+    let mut v = vec![DEFAULT_BINARY.to_string()]; // PATH resolution
+
+    #[cfg(target_os = "macos")]
+    {
+        v.push("/opt/homebrew/bin/yt-dlp".into()); // Apple Silicon Homebrew
+        v.push("/usr/local/bin/yt-dlp".into()); // Intel Homebrew
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        v.push("yt-dlp.exe".into());
+        if let Some(home) = home {
+            v.push(format!("{}\\AppData\\Local\\yt-dlp\\yt-dlp.exe", home.display()));
+        }
+    }
+
+    if let Some(home) = home {
+        let h = home.display().to_string();
+        v.push(format!("{h}/.local/bin/yt-dlp"));
+        v.push(format!("{h}/bin/yt-dlp"));
+    }
+
+    v.dedup();
+    v
+}
+
+/// Probe common locations and PATH for a working yt-dlp.
+pub fn detect() -> Option<Detection> {
+    candidates(home_dir().as_deref())
+        .into_iter()
+        .find_map(|c| version(Some(c.clone())).ok().map(|version| Detection { path: c, version }))
+}

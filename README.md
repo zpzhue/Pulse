@@ -92,6 +92,12 @@ UI 以 `ytdlp-gui/` 目录下的设计稿为准（各独立页面 html）。注�
 - 进度流式上报 → 首页 Dashboard 联动真实数据属于阶段 7
 - 需要系统已安装 `yt-dlp`（默认 `yt-dlp`，可在设置页配置路径）
 
+## 阶段 8：yt-dlp 自动探测 + 缺失引导
+- 启动时自动探测 yt-dlp（PATH + 常见安装目录：Homebrew、`~/.local/bin`、`~/bin` 等）
+- 检测到 → 自动使用可执行路径并持久化（`pulse.ytdlp.binary`）
+- 未检测到 / 路径无效 → 顶部警告横幅，提供「下载 yt-dlp」（打开官方 release 页）与「设置路径」（弹窗手动指定，标记为手动来源）两种引导
+- 用户手动设置的路径（顶部横幅或设置页）以 `pulse.ytdlp.source = manual` 标记，后续启动优先校验该路径，而非重新探测
+
 ## 阶段 7：状态 / 进度持久化 + 首页联动真实数据
 ### 全局下载状态（Store）
 - `src/composables/useDownloads.ts`：单例组合式状态，统一管理下载任务生命周期与真实子进程

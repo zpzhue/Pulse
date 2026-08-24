@@ -60,6 +60,44 @@ export function setBinary(path: string): void {
   }
 }
 
+const BINARY_SOURCE_KEY = "pulse.ytdlp.source";
+
+export type BinarySource = "auto" | "manual";
+
+/** Whether the current binary was auto-detected or set manually by the user. */
+export function getBinarySource(): BinarySource {
+  try {
+    return localStorage.getItem(BINARY_SOURCE_KEY) === "manual" ? "manual" : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+/** Persist a user-supplied manual binary path (marks it as manual). */
+export function setManualBinary(path: string): void {
+  setBinary(path);
+  try {
+    localStorage.setItem(BINARY_SOURCE_KEY, "manual");
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Clears any manual override so detection is used again on next launch. */
+export function clearBinaryOverride(): void {
+  try {
+    localStorage.removeItem(BINARY_KEY);
+    localStorage.removeItem(BINARY_SOURCE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Probe common locations / PATH for a working yt-dlp. */
+export function detectYtdlp(): Promise<{ path: string; version: string } | null> {
+  return invoke<{ path: string; version: string } | null>("detect_ytdlp");
+}
+
 /** Resolve a URL to metadata / playlist entries. */
 export function resolveUrl(url: string): Promise<ResolveResult> {
   return invoke<ResolveResult>("resolve_url", { req: { url, binary: getBinary() } });

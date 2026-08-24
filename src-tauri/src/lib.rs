@@ -30,6 +30,12 @@ fn ytdlp_version(binary: Option<String>) -> Result<String, String> {
     ytdlp::version(binary)
 }
 
+/// Probe common locations / PATH for a working yt-dlp.
+#[tauri::command]
+fn detect_ytdlp() -> Result<Option<ytdlp::Detection>, String> {
+    Ok(ytdlp::detect())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -38,7 +44,8 @@ pub fn run() {
             greet,
             resolve_url,
             start_download,
-            ytdlp_version
+            ytdlp_version,
+            detect_ytdlp
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

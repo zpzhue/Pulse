@@ -14,7 +14,7 @@ import {
   Github,
 } from "lucide-vue-next";
 import { useTheme } from "../composables/useTheme";
-import { checkVersion, getBinary, setBinary } from "../services/ytdlp";
+import { checkVersion, getBinary, setManualBinary } from "../services/ytdlp";
 
 const { isDark, accent, accents, toggleDark, setAccent } = useTheme();
 
@@ -46,15 +46,15 @@ const ytdlpStatus = ref("");
 const ytdlpTesting = ref(false);
 
 async function persistAndTest() {
-  setBinary(ytdlpPath.value);
-  ytdlpStatus.value = "";
   if (!ytdlpPath.value.trim()) {
     ytdlpStatus.value = "路径不能为空";
     return;
   }
+  setManualBinary(ytdlpPath.value.trim());
+  ytdlpStatus.value = "";
   ytdlpTesting.value = true;
   try {
-    const v = await checkVersion(ytdlpPath.value);
+    const v = await checkVersion(ytdlpPath.value.trim());
     ytdlpStatus.value = `连接成功：yt-dlp ${v}`;
   } catch (e) {
     ytdlpStatus.value = `连接失败：${String(e)}`;
