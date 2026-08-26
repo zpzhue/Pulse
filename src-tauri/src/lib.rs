@@ -70,6 +70,12 @@ fn detect_ytdlp() -> Result<Option<ytdlp::Detection>, String> {
     Ok(ytdlp::detect())
 }
 
+/// Update a standalone yt-dlp executable after explicit user confirmation.
+#[tauri::command]
+fn update_ytdlp(binary: Option<String>) -> Result<String, String> {
+    ytdlp::update(binary)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -81,7 +87,8 @@ pub fn run() {
             start_download,
             cancel_download,
             ytdlp_version,
-            detect_ytdlp
+            detect_ytdlp,
+            update_ytdlp
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

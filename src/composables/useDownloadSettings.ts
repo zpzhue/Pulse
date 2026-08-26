@@ -8,6 +8,13 @@ export interface DownloadSettings {
   proxyEnabled: boolean;
   proxyUrl: string;
   concurrent: number;
+  rateLimitEnabled: boolean;
+  rateLimitKiB: number;
+  resumeEnabled: boolean;
+  retryCount: number;
+  cookieEnabled: boolean;
+  cookiePath: string;
+  removePartialFiles: boolean;
 }
 
 const STORAGE_KEY = "pulse.download-settings";
@@ -20,6 +27,13 @@ const defaults: DownloadSettings = {
   proxyEnabled: false,
   proxyUrl: "",
   concurrent: 3,
+  rateLimitEnabled: false,
+  rateLimitKiB: 0,
+  resumeEnabled: true,
+  retryCount: 3,
+  cookieEnabled: false,
+  cookiePath: "",
+  removePartialFiles: false,
 };
 
 const legacyQuality: Record<string, DownloadSettings["quality"]> = {
@@ -39,10 +53,14 @@ function stringSetting(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
 }
 
-function concurrentSetting(value: unknown): number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 10
+function integerSetting(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
     ? value
-    : defaults.concurrent;
+    : fallback;
+}
+
+function concurrentSetting(value: unknown): number {
+  return integerSetting(value, defaults.concurrent, 1, 10);
 }
 
 function load(): DownloadSettings {
@@ -62,6 +80,13 @@ function load(): DownloadSettings {
       proxyEnabled: typeof value.proxyEnabled === "boolean" ? value.proxyEnabled : defaults.proxyEnabled,
       proxyUrl: stringSetting(value.proxyUrl, defaults.proxyUrl),
       concurrent: concurrentSetting(value.concurrent),
+      rateLimitEnabled: typeof value.rateLimitEnabled === "boolean" ? value.rateLimitEnabled : defaults.rateLimitEnabled,
+      rateLimitKiB: integerSetting(value.rateLimitKiB, defaults.rateLimitKiB, 0, 10_000_000),
+      resumeEnabled: typeof value.resumeEnabled === "boolean" ? value.resumeEnabled : defaults.resumeEnabled,
+      retryCount: integerSetting(value.retryCount, defaults.retryCount, 0, 100),
+      cookieEnabled: typeof value.cookieEnabled === "boolean" ? value.cookieEnabled : defaults.cookieEnabled,
+      cookiePath: stringSetting(value.cookiePath, defaults.cookiePath),
+      removePartialFiles: typeof value.removePartialFiles === "boolean" ? value.removePartialFiles : defaults.removePartialFiles,
     };
   } catch {
     return { ...defaults };

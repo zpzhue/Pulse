@@ -19,16 +19,17 @@ import {
   formatEta,
 } from "../composables/useDownloads";
 
-const { active, activeCount, completedCount, totalSpeed, diskUsage, cancel } = useDownloads();
+const { active, activeCount, queuedCount, completedCount, totalSpeed, diskUsage, cancel } = useDownloads();
 
 const speedMB = computed(() => (totalSpeed.value / 1048576).toFixed(1));
 const diskGB = computed(() => (diskUsage.value / 1073741824).toFixed(1));
 
 const stats = computed(() => [
-  { icon: Download, accent: true, label: "正在下载", value: String(activeCount.value), unit: "" },
-  { icon: CircleCheck, accent: false, label: "已完成", value: String(completedCount.value), unit: "" },
-  { icon: Gauge, accent: false, label: "下载速度", value: speedMB.value, unit: "MB/s" },
-  { icon: HardDrive, accent: false, label: "磁盘占用", value: diskGB.value, unit: "GB" },
+  { id: "active", icon: Download, accent: true, label: "正在下载", value: String(activeCount.value), unit: "" },
+  { id: "queued", icon: Clock, accent: false, label: "等待中", value: String(queuedCount.value), unit: "" },
+  { id: "completed", icon: CircleCheck, accent: false, label: "已完成", value: String(completedCount.value), unit: "" },
+  { id: "speed", icon: Gauge, accent: false, label: "下载速度", value: speedMB.value, unit: "MB/s" },
+  { id: "disk", icon: HardDrive, accent: false, label: "磁盘占用", value: diskGB.value, unit: "GB" },
 ]);
 </script>
 
@@ -49,11 +50,12 @@ const stats = computed(() => [
       </RouterLink>
     </div>
 
-    <!-- Stats Strip: 4 stat cards -->
-    <div class="grid grid-cols-4 gap-4 mb-6 max-lg:grid-cols-2 max-sm:grid-cols-1">
+    <!-- Stats Strip -->
+    <div class="grid grid-cols-5 gap-4 mb-6 max-xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
       <div
         v-for="s in stats"
-        :key="s.label"
+        :key="s.id"
+        :data-testid="`stat-${s.id}`"
         class="bg-card border border-border rounded-lg p-4 flex items-center gap-3"
       >
         <div class="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0">

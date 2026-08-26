@@ -206,6 +206,11 @@ async function startSingle() {
     thumbnail: singleThumb.value,
     keepOriginalFormat: singleKeepFormat.value && !singleFormat.value.includes("MP3"),
     proxy: downloadSettings.proxyEnabled ? downloadSettings.proxyUrl : undefined,
+    rateLimitKiB: downloadSettings.rateLimitEnabled ? downloadSettings.rateLimitKiB : undefined,
+    resume: downloadSettings.resumeEnabled,
+    removePartialFiles: downloadSettings.removePartialFiles,
+    retries: downloadSettings.retryCount,
+    cookiePath: downloadSettings.cookieEnabled ? downloadSettings.cookiePath : undefined,
   });
 }
 
@@ -228,6 +233,11 @@ async function startBatch() {
     thumbnail: commonThumb.value,
     proxy: downloadSettings.proxyEnabled ? downloadSettings.proxyUrl : undefined,
     playlistItems: selected.map((item) => item.index),
+    rateLimitKiB: downloadSettings.rateLimitEnabled ? downloadSettings.rateLimitKiB : undefined,
+    resume: downloadSettings.resumeEnabled,
+    removePartialFiles: downloadSettings.removePartialFiles,
+    retries: downloadSettings.retryCount,
+    cookiePath: downloadSettings.cookieEnabled ? downloadSettings.cookiePath : undefined,
   });
   playlist.value.forEach((item) => {
     item.status = item.selected ? "downloading" : "unselected";

@@ -1,4 +1,4 @@
-import { ref, computed, readonly, reactive, watch } from "vue";
+import { ref, computed, readonly, reactive, watch, effectScope } from "vue";
 import {
   cancelDownload,
   startDownload,
@@ -41,6 +41,11 @@ export interface StartSpec {
   keepOriginalFormat?: boolean;
   proxy?: string;
   playlistItems?: number[];
+  rateLimitKiB?: number;
+  resume?: boolean;
+  removePartialFiles?: boolean;
+  retries?: number;
+  cookiePath?: string;
 }
 
 const HISTORY_KEY = "pulse.history";
@@ -94,20 +99,25 @@ function loadHistory(): DownloadTask[] {
   }
 }
 
-const active = ref<DownloadTask[]>([]);
-const history = ref<DownloadTask[]>(loadHistory());
-const pendingSpecs = new Map<string, StartSpec>();
-const { settings: downloadSettings } = useDownloadSettings();
-let drainingQueue = false;
+interface DownloadStoreDependencies {
+  settings: { concurrent: number };
+  loadHistory: () => DownloadTask[];
+  persistHistory: (tasks: DownloadTask[]) => void;
+}
 
-// Persist history (deep) whenever it changes.
-watch(history, (h) => {
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(-HISTORY_LIMIT)));
-  } catch {
-    /* ignore quota errors */
-  }
-}, { deep: true });
+export function createDownloadStore(dependencies: DownloadStoreDependencies) {
+  const active = ref<DownloadTask[]>([]);
+  const history = ref<DownloadTask[]>(dependencies.loadHistory());
+  const pendingSpecs = new Map<string, StartSpec>();
+  const scope = effectScope();
+  let drainingQueue = false;
+
+  scope.run(() => {
+    // Persist history (deep) whenever it changes.
+    watch(history, (h) => {
+      dependencies.persistHistory(h.slice(-HISTORY_LIMIT));
+    }, { deep: true });
+  });
 
 function moveToHistory(task: DownloadTask) {
   const idx = active.value.findIndex((activeTask) => activeTask.id === task.id);
@@ -169,6 +179,11 @@ async function runTask(task: DownloadTask, spec: StartSpec) {
     keepOriginalFormat: spec.keepOriginalFormat,
     proxy: spec.proxy,
     playlistItems: spec.playlistItems,
+    rateLimitKiB: spec.rateLimitKiB,
+    resume: spec.resume,
+    removePartialFiles: spec.removePartialFiles,
+    retries: spec.retries,
+    cookiePath: spec.cookiePath,
   };
 
   try {
@@ -212,7 +227,7 @@ async function drainQueue(): Promise<void> {
   if (drainingQueue) return;
   drainingQueue = true;
   try {
-    while (active.value.filter((task) => task.status === "downloading" || task.status === "cancelling").length < downloadSettings.concurrent) {
+    while (active.value.filter((task) => task.status === "downloading" || task.status === "cancelling").length < dependencies.settings.concurrent) {
       const next = active.value.find((task) => task.status === "pending");
       if (!next) break;
       const spec = pendingSpecs.get(next.id);
@@ -256,32 +271,53 @@ async function start(spec: StartSpec): Promise<DownloadTask> {
   return task;
 }
 
-watch(() => downloadSettings.concurrent, () => {
-  void drainQueue();
-});
+  scope.run(() => {
+    watch(() => dependencies.settings.concurrent, () => {
+      void drainQueue();
+    });
+  });
 
 /* ------------------------------------------------------------------ */
 /*  Dashboard aggregates                                                */
 /* ------------------------------------------------------------------ */
 
-const activeCount = computed(() => active.value.length);
+const activeCount = computed(() => active.value.filter((task) => task.status === "downloading" || task.status === "cancelling").length);
+const queuedCount = computed(() => active.value.filter((task) => task.status === "pending").length);
 const completedCount = computed(() => history.value.length);
 const totalSpeed = computed(() => active.value.reduce((sum, t) => sum + (t.speed || 0), 0));
 const diskUsage = computed(() =>
   history.value.reduce((sum, t) => sum + (t.downloadedBytes || 0), 0),
 );
 
-/** Reactive, singleton store shared across the app. */
-export function useDownloads() {
   return {
     active: readonly(active),
     history: readonly(history),
     activeCount,
+    queuedCount,
     completedCount,
     totalSpeed,
     diskUsage,
     start,
     removeHistory,
     cancel,
+    dispose: () => scope.stop(),
   };
+}
+
+const { settings: downloadSettings } = useDownloadSettings();
+const sharedStore = createDownloadStore({
+  settings: downloadSettings,
+  loadHistory,
+  persistHistory(tasks) {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(tasks));
+    } catch {
+      /* ignore quota errors */
+    }
+  },
+});
+
+/** Reactive, singleton store shared across the app. */
+export function useDownloads() {
+  return sharedStore;
 }

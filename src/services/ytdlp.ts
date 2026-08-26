@@ -29,6 +29,11 @@ export interface DownloadOptions {
   keepOriginalFormat?: boolean;
   proxy?: string;
   playlistItems?: number[];
+  rateLimitKiB?: number;
+  resume?: boolean;
+  removePartialFiles?: boolean;
+  retries?: number;
+  cookiePath?: string;
 }
 
 /** Streamed progress event pushed from Rust during a download. */
@@ -111,6 +116,11 @@ export function checkVersion(binary?: string): Promise<string> {
   return invoke<string>("ytdlp_version", { binary: binary ?? getBinary() });
 }
 
+/** Update the current standalone yt-dlp executable after user confirmation. */
+export function updateYtdlp(binary: string): Promise<string> {
+  return invoke<string>("update_ytdlp", { binary });
+}
+
 /** Stop a running download task managed by the Rust backend. */
 export function cancelDownload(taskId: string): Promise<void> {
   return invoke<void>("cancel_download", { taskId });
@@ -138,6 +148,11 @@ export async function startDownload(
       keepOriginalFormat: options.keepOriginalFormat ?? false,
       proxy: options.proxy ?? undefined,
       playlistItems: options.playlistItems ?? undefined,
+      rateLimitKiB: options.rateLimitKiB ?? undefined,
+      resume: options.resume ?? true,
+      removePartialFiles: options.removePartialFiles ?? false,
+      retries: options.retries ?? 3,
+      cookiePath: options.cookiePath ?? undefined,
       binary: getBinary(),
     },
     onEvent: channel,

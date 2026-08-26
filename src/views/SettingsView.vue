@@ -15,7 +15,7 @@ import {
 } from "lucide-vue-next";
 import { useTheme } from "../composables/useTheme";
 import { useDownloadSettings } from "../composables/useDownloadSettings";
-import { checkVersion, getBinary, setManualBinary } from "../services/ytdlp";
+import { checkVersion, getBinary, setManualBinary, updateYtdlp } from "../services/ytdlp";
 
 const { isDark, accent, accents, toggleDark, setAccent } = useTheme();
 
@@ -60,15 +60,28 @@ async function persistAndTest() {
   }
 }
 
-const autoUpdate = ref(false);
-const cookieEnabled = ref(false);
+const ytdlpUpdating = ref(false);
+const ytdlpUpdateStatus = ref("");
 
-/* ---- 网络 ---- */
-const rateLimitEnabled = ref(false);
-const rateLimitValue = ref(0);
-const resumeEnabled = ref(true);
-const verifyEnabled = ref(true);
-const retryCount = ref(3);
+async function confirmAndUpdate() {
+  const binary = ytdlpPath.value.trim();
+  if (!binary) {
+    ytdlpUpdateStatus.value = "路径不能为空";
+    return;
+  }
+  if (!window.confirm("将使用 yt-dlp 内置更新程序检查并更新当前二进制。更新失败时将保留现有版本。是否继续？")) return;
+
+  ytdlpUpdating.value = true;
+  ytdlpUpdateStatus.value = "";
+  try {
+    const version = await updateYtdlp(binary);
+    ytdlpUpdateStatus.value = `更新完成：yt-dlp ${version}`;
+  } catch (error) {
+    ytdlpUpdateStatus.value = `更新失败：${String(error)}`;
+  } finally {
+    ytdlpUpdating.value = false;
+  }
+}
 </script>
 
 <template>
@@ -241,21 +254,19 @@ const retryCount = ref(3);
         </div>
 
         <div class="st-item">
-          <div class="flex items-center justify-between gap-4">
-            <div>
-              <span class="st-label">自动更新</span>
-              <span class="st-desc">启动时检查 yt-dlp 新版本</span>
-            </div>
-            <button type="button" class="st-toggle" :class="{ on: autoUpdate }" role="switch" :aria-checked="autoUpdate" @click="autoUpdate = !autoUpdate">
-              <span class="knob"></span>
-            </button>
+          <div>
+            <span class="st-label">检查更新</span>
+            <span class="st-desc">使用 yt-dlp 内置更新程序，更新前需确认</span>
           </div>
           <div class="mt-3">
-            <button type="button" class="st-btn-secondary" disabled>
+            <button type="button" class="st-btn-secondary" :disabled="ytdlpUpdating" @click="confirmAndUpdate">
               <Zap class="w-3.5 h-3.5" />
-              <span>立即检查更新</span>
+              <span>{{ ytdlpUpdating ? "更新中…" : "检查并更新" }}</span>
             </button>
           </div>
+          <p v-if="ytdlpUpdateStatus" class="text-[13px] mt-2" :class="ytdlpUpdateStatus.includes('失败') ? 'text-[var(--state-error)]' : 'text-[var(--state-success)]'">
+            {{ ytdlpUpdateStatus }}
+          </p>
         </div>
 
         <div class="st-item">
@@ -279,18 +290,12 @@ const retryCount = ref(3);
               <span class="st-label">Cookie 配置</span>
               <span class="st-desc">使用浏览器 Cookie 访问受限内容</span>
             </div>
-            <button type="button" class="st-toggle" :class="{ on: cookieEnabled }" role="switch" :aria-checked="cookieEnabled" @click="cookieEnabled = !cookieEnabled">
+            <button type="button" class="st-toggle" :class="{ on: downloadSettings.cookieEnabled }" role="switch" :aria-checked="downloadSettings.cookieEnabled" @click="downloadSettings.cookieEnabled = !downloadSettings.cookieEnabled">
               <span class="knob"></span>
             </button>
           </div>
           <div class="mt-3">
-            <div class="flex gap-2">
-              <input type="text" placeholder="选择 cookie.txt" class="st-input flex-1 font-mono" :disabled="!cookieEnabled" />
-              <button type="button" class="st-btn-browse" :disabled="!cookieEnabled">
-                <Folder class="w-3.5 h-3.5" />
-                <span>浏览</span>
-              </button>
-            </div>
+            <input v-model="downloadSettings.cookiePath" type="text" placeholder="Cookie 文件绝对路径" class="st-input w-full font-mono" :disabled="!downloadSettings.cookieEnabled" />
           </div>
         </div>
 
@@ -319,12 +324,12 @@ const retryCount = ref(3);
             <span class="st-desc">限制下载带宽，0 为不限速</span>
           </div>
           <div class="flex items-center gap-3">
-            <button type="button" class="st-toggle" :class="{ on: rateLimitEnabled }" role="switch" :aria-checked="rateLimitEnabled" @click="rateLimitEnabled = !rateLimitEnabled">
+            <button type="button" class="st-toggle" :class="{ on: downloadSettings.rateLimitEnabled }" role="switch" :aria-checked="downloadSettings.rateLimitEnabled" @click="downloadSettings.rateLimitEnabled = !downloadSettings.rateLimitEnabled">
               <span class="knob"></span>
             </button>
             <div class="flex items-center gap-2">
-              <input v-model.number="rateLimitValue" type="number" class="st-input w-20 text-center" :disabled="!rateLimitEnabled" />
-              <span class="text-[13px] text-muted-foreground whitespace-nowrap">KB/s</span>
+              <input v-model.number="downloadSettings.rateLimitKiB" type="number" min="0" max="10000000" class="st-input w-20 text-center" :disabled="!downloadSettings.rateLimitEnabled" />
+              <span class="text-[13px] text-muted-foreground whitespace-nowrap">KiB/s</span>
             </div>
           </div>
         </div>
@@ -334,17 +339,17 @@ const retryCount = ref(3);
             <span class="st-label">断点续传</span>
             <span class="st-desc">支持中断后继续下载</span>
           </div>
-          <button type="button" class="st-toggle" :class="{ on: resumeEnabled }" role="switch" :aria-checked="resumeEnabled" @click="resumeEnabled = !resumeEnabled">
+          <button type="button" class="st-toggle" :class="{ on: downloadSettings.resumeEnabled }" role="switch" :aria-checked="downloadSettings.resumeEnabled" @click="downloadSettings.resumeEnabled = !downloadSettings.resumeEnabled">
             <span class="knob"></span>
           </button>
         </div>
 
         <div class="st-item flex items-center justify-between gap-4">
           <div>
-            <span class="st-label">校验文件完整性</span>
-            <span class="st-desc">下载完成后验证文件哈希</span>
+            <span class="st-label">清理未完成文件</span>
+            <span class="st-desc">关闭后保留 .part 文件以便断点续传</span>
           </div>
-          <button type="button" class="st-toggle" :class="{ on: verifyEnabled }" role="switch" :aria-checked="verifyEnabled" @click="verifyEnabled = !verifyEnabled">
+          <button type="button" class="st-toggle" :class="{ on: downloadSettings.removePartialFiles }" role="switch" :aria-checked="downloadSettings.removePartialFiles" @click="downloadSettings.removePartialFiles = !downloadSettings.removePartialFiles">
             <span class="knob"></span>
           </button>
         </div>
@@ -354,7 +359,7 @@ const retryCount = ref(3);
             <span class="st-label">重试次数</span>
             <span class="st-desc">下载失败后自动重试次数</span>
           </div>
-          <input v-model.number="retryCount" type="number" min="0" max="10" class="st-input w-20 text-center" />
+          <input v-model.number="downloadSettings.retryCount" type="number" min="0" max="100" class="st-input w-20 text-center" />
         </div>
       </div>
 

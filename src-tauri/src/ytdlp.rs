@@ -109,6 +109,11 @@ pub struct DownloadOptions {
     pub keep_original_format: bool,
     pub proxy: Option<String>,
     pub playlist_items: Option<Vec<usize>>,
+    pub rate_limit_ki_b: Option<u64>,
+    pub resume: bool,
+    pub remove_partial_files: bool,
+    pub retries: u32,
+    pub cookie_path: Option<String>,
     pub binary: Option<String>,
 }
 
@@ -125,6 +130,25 @@ fn build_args(o: &DownloadOptions) -> Vec<String> {
         args.push("--proxy".into());
         args.push(p.into());
     }
+    if let Some(rate_limit) = o.rate_limit_ki_b.filter(|limit| *limit > 0) {
+        args.push("--limit-rate".into());
+        args.push(format!("{rate_limit}K"));
+    }
+    if let Some(cookie_path) = o.cookie_path.as_deref().filter(|path| !path.trim().is_empty()) {
+        args.push("--cookies".into());
+        args.push(cookie_path.into());
+    }
+    args.push("--retries".into());
+    args.push(o.retries.to_string());
+    if o.resume {
+        args.push("--continue".into());
+    } else {
+        args.push("--no-continue".into());
+    }
+    if o.remove_partial_files {
+        args.push("--no-part".into());
+    }
+
     if let Some(items) = o.playlist_items.as_ref().filter(|items| !items.is_empty()) {
         let selected = items
             .iter()
@@ -256,14 +280,29 @@ fn parse_progress(line: &str) -> Option<serde_json::Value> {
 }
 
 /// Start a managed download and return immediately after the child is spawned.
+fn validated_cookie_path(path: Option<String>) -> Result<Option<String>, String> {
+    let Some(path) = path.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|error| format!("Cookie 文件不可访问（{path}）：{error}"))?;
+    let metadata = std::fs::metadata(&canonical)
+        .map_err(|error| format!("无法读取 Cookie 文件（{}）：{error}", canonical.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("Cookie 路径必须是文件：{}", canonical.display()));
+    }
+    Ok(Some(canonical.to_string_lossy().into_owned()))
+}
+
 pub fn start_download(
-    o: DownloadOptions,
+    mut o: DownloadOptions,
     on_event: Channel<serde_json::Value>,
     manager: &DownloadManager,
 ) -> Result<String, String> {
     if o.task_id.trim().is_empty() {
         return Err("下载任务缺少 taskId".to_string());
     }
+    o.cookie_path = validated_cookie_path(o.cookie_path)?;
 
     let task_id = o.task_id.clone();
     let binary = binary_of(&o.binary);
@@ -408,6 +447,56 @@ pub fn version(binary: Option<String>) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
 }
 
+fn is_stable_version(version: &str) -> bool {
+    let mut parts = version.trim().split('.');
+    let Some(year) = parts.next() else { return false; };
+    let Some(month) = parts.next() else { return false; };
+    let Some(day) = parts.next() else { return false; };
+    parts.next().is_none()
+        && year.len() == 4
+        && month.len() == 2
+        && day.len() == 2
+        && year.chars().all(|character| character.is_ascii_digit())
+        && month.chars().all(|character| character.is_ascii_digit())
+        && day.chars().all(|character| character.is_ascii_digit())
+}
+
+fn verified_update_binary(binary: Option<String>) -> Result<String, String> {
+    let binary = binary_of(&binary);
+    let path = std::path::Path::new(binary);
+    if !path.is_absolute() {
+        return Err("仅可更新已配置为绝对路径的 yt-dlp 可执行文件；PATH 或包管理器安装请通过其原渠道更新".to_string());
+    }
+    if !path.is_file() {
+        return Err(format!("yt-dlp 路径不是可更新的文件：{binary}"));
+    }
+
+    let detected_version = version(Some(binary.to_string()))?;
+    if !is_stable_version(&detected_version) {
+        return Err(format!("路径不是稳定版 yt-dlp 可执行文件：{binary}"));
+    }
+    Ok(binary.to_string())
+}
+
+/// Run yt-dlp's built-in update command after explicit user confirmation.
+pub fn update(binary: Option<String>) -> Result<String, String> {
+    let binary = verified_update_binary(binary)?;
+    let output = Command::new(&binary)
+        .arg("--update")
+        .output()
+        .map_err(|e| format!("无法启动 yt-dlp 更新（{}）: {e}", binary))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("yt-dlp 更新失败，退出码 {:?}", output.status.code())
+        } else {
+            stderr
+        });
+    }
+
+    version(Some(binary))
+}
+
 /* ------------------------------------------------------------------ */
 /*  Detection                                                          */
 /* ------------------------------------------------------------------ */
@@ -476,13 +565,17 @@ mod tests {
         dir
     }
 
-    fn write_fake_ytdlp(dir: &PathBuf) -> PathBuf {
-        let bin = dir.join("yt-dlp");
-        fs::write(&bin, "#!/bin/sh\nprintf '2026.08.24-test'\n").unwrap();
+    fn write_executable(dir: &PathBuf, name: &str, script: &str) -> PathBuf {
+        let bin = dir.join(name);
+        fs::write(&bin, script).unwrap();
         let mut perm = fs::metadata(&bin).unwrap().permissions();
         perm.set_mode(0o755);
         fs::set_permissions(&bin, perm).unwrap();
         bin
+    }
+
+    fn write_fake_ytdlp(dir: &PathBuf) -> PathBuf {
+        write_executable(dir, "yt-dlp", "#!/bin/sh\nprintf '2026.08.24-test'\n")
     }
 
     fn set_env(vars: &[(&str, &str)]) {
@@ -505,6 +598,11 @@ mod tests {
             keep_original_format: false,
             proxy: Some("http://127.0.0.1:7890".into()),
             playlist_items: Some(vec![1, 3, 0, 7]),
+            rate_limit_ki_b: Some(512),
+            resume: true,
+            remove_partial_files: true,
+            retries: 4,
+            cookie_path: Some("/tmp/cookies.txt".into()),
             binary: None,
         };
         let args = build_args(&options);
@@ -512,6 +610,15 @@ mod tests {
         assert_eq!(args[proxy_index + 1], "http://127.0.0.1:7890");
         let playlist_index = args.iter().position(|arg| arg == "--playlist-items").expect("playlist flag");
         assert_eq!(args[playlist_index + 1], "1,3,7");
+        let rate_index = args.iter().position(|arg| arg == "--limit-rate").expect("rate limit flag");
+        assert_eq!(args[rate_index + 1], "512K");
+        let cookies_index = args.iter().position(|arg| arg == "--cookies").expect("cookies flag");
+        assert_eq!(args[cookies_index + 1], "/tmp/cookies.txt");
+        let retries_index = args.iter().position(|arg| arg == "--retries").expect("retries flag");
+        assert_eq!(args[retries_index + 1], "4");
+        assert!(args.iter().any(|arg| arg == "--continue"));
+        assert!(args.iter().any(|arg| arg == "--no-part"));
+        assert!(!args.iter().any(|arg| arg == "--no-overwrites"));
     }
 
     #[test]
@@ -528,11 +635,77 @@ mod tests {
             keep_original_format: true,
             proxy: None,
             playlist_items: None,
+            rate_limit_ki_b: None,
+            resume: false,
+            remove_partial_files: false,
+            retries: 0,
+            cookie_path: None,
             binary: None,
         };
         let args = build_args(&options);
         assert!(!args.iter().any(|arg| arg == "-f"));
         assert!(!args.iter().any(|arg| arg == "--merge-output-format"));
+        assert!(args.iter().any(|arg| arg == "--no-continue"));
+        assert!(!args.iter().any(|arg| arg == "--no-part"));
+        assert!(!args.iter().any(|arg| arg == "--no-overwrites"));
+    }
+
+    #[test]
+    fn refuses_non_absolute_or_non_file_update_targets() {
+        let relative = update(Some("yt-dlp".into())).expect_err("relative path must be refused");
+        assert!(relative.contains("绝对路径"));
+
+        let directory = temp_dir("update-directory");
+        let invalid = update(Some(directory.to_string_lossy().into_owned()))
+            .expect_err("directory must be refused");
+        assert!(invalid.contains("不是可更新的文件"));
+    }
+
+    #[test]
+    fn accepts_only_stable_release_versions() {
+        assert!(is_stable_version("2025.06.25"));
+        assert!(!is_stable_version("2025.6.25"));
+        assert!(!is_stable_version("2025.06.25.1"));
+        assert!(!is_stable_version("2025.06.25-nightly"));
+        assert!(!is_stable_version("v2025.06.25"));
+    }
+
+    #[test]
+    fn rejects_non_ytdlp_update_target_before_running_update() {
+        let dir = temp_dir("not-ytdlp");
+        let binary = write_executable(&dir, "tool", "#!/bin/sh\necho 'not a version'; exit 0\n");
+
+        let error = update(Some(binary.to_string_lossy().into_owned()))
+            .expect_err("non-yt-dlp target must be refused");
+        assert!(error.contains("不是稳定版 yt-dlp"));
+    }
+
+    #[test]
+    fn reports_update_failure_after_verifying_binary() {
+        let dir = temp_dir("update-failure");
+        let binary = write_executable(
+            &dir,
+            "yt-dlp",
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '2026.08.24-test'; exit 0; fi\nif [ \"$1\" = \"--update\" ]; then echo 'update failed' >&2; exit 1; fi\necho 'unexpected command' >&2; exit 2\n",
+        );
+
+        let error = update(Some(binary.to_string_lossy().into_owned()))
+            .expect_err("failing update should be returned");
+        assert_eq!(error, "update failed");
+    }
+
+    #[test]
+    fn validates_cookie_file_paths() {
+        let dir = temp_dir("cookies");
+        let file = dir.join("cookies.txt");
+        fs::write(&file, "# Netscape HTTP Cookie File\n").unwrap();
+
+        let validated = validated_cookie_path(Some(file.to_string_lossy().into_owned()))
+            .expect("cookie file should validate");
+        assert_eq!(validated, Some(fs::canonicalize(&file).unwrap().to_string_lossy().into_owned()));
+        assert!(validated_cookie_path(None).unwrap().is_none());
+        assert!(validated_cookie_path(Some(dir.to_string_lossy().into_owned())).is_err());
+        assert!(validated_cookie_path(Some(dir.join("missing.txt").to_string_lossy().into_owned())).is_err());
     }
 
     #[test]
