@@ -14,6 +14,7 @@ import {
   Github,
 } from "lucide-vue-next";
 import { useTheme } from "../composables/useTheme";
+import { useDownloadSettings } from "../composables/useDownloadSettings";
 import { checkVersion, getBinary, setManualBinary } from "../services/ytdlp";
 
 const { isDark, accent, accents, toggleDark, setAccent } = useTheme();
@@ -34,11 +35,7 @@ const navItems: { key: PanelKey; icon: typeof Palette; label: string }[] = [
 const density = ref("标准");
 
 /* ---- 下载设置 ---- */
-const defaultQuality = ref("1080p (推荐)");
-const defaultFormat = ref("MP4");
-const downloadPath = ref("~/Downloads/Pulse/");
-const filenameTemplate = ref("%(title)s.%(ext)s");
-const concurrent = ref(3);
+const { settings: downloadSettings } = useDownloadSettings();
 
 /* ---- yt-dlp 配置 ---- */
 const ytdlpPath = ref(getBinary());
@@ -64,8 +61,6 @@ async function persistAndTest() {
 }
 
 const autoUpdate = ref(false);
-const proxyEnabled = ref(true);
-const proxyUrl = ref("http://127.0.0.1:7890");
 const cookieEnabled = ref(false);
 
 /* ---- 网络 ---- */
@@ -177,11 +172,11 @@ const retryCount = ref(3);
             <span class="st-desc">新建下载的默认视频质量</span>
           </div>
           <div class="select-wrap">
-            <select v-model="defaultQuality" class="st-select">
-              <option>1080p (推荐)</option>
-              <option>720p</option>
-              <option>480p</option>
-              <option>最佳</option>
+            <select v-model="downloadSettings.quality" class="st-select">
+              <option value="1080p">1080p（推荐）</option>
+              <option value="720p">720p</option>
+              <option value="480p">480p</option>
+              <option value="best">最佳</option>
             </select>
             <span class="chev"><ChevronDown class="w-4 h-4" /></span>
           </div>
@@ -193,11 +188,10 @@ const retryCount = ref(3);
             <span class="st-desc">优先下载的容器格式</span>
           </div>
           <div class="select-wrap">
-            <select v-model="defaultFormat" class="st-select">
+            <select v-model="downloadSettings.format" class="st-select">
               <option>MP4</option>
               <option>WebM</option>
               <option>MKV</option>
-              <option>最佳</option>
             </select>
             <span class="chev"><ChevronDown class="w-4 h-4" /></span>
           </div>
@@ -206,7 +200,7 @@ const retryCount = ref(3);
         <div class="st-item">
           <label class="st-label-above">下载路径</label>
           <div class="flex gap-2">
-            <input v-model="downloadPath" type="text" class="st-input flex-1 font-mono" />
+            <input v-model="downloadSettings.downloadPath" type="text" class="st-input flex-1 font-mono" />
             <button type="button" class="st-btn-browse">
               <Folder class="w-3.5 h-3.5" />
               <span>浏览</span>
@@ -216,7 +210,7 @@ const retryCount = ref(3);
 
         <div class="st-item">
           <label class="st-label-above">文件名模板</label>
-          <input v-model="filenameTemplate" type="text" class="st-input w-full font-mono" />
+          <input v-model="downloadSettings.filenameTemplate" type="text" class="st-input w-full font-mono" />
         </div>
 
         <div class="st-item flex items-center justify-between gap-4">
@@ -224,7 +218,7 @@ const retryCount = ref(3);
             <span class="st-label">同时下载数</span>
             <span class="st-desc">最大并发下载数</span>
           </div>
-          <input v-model.number="concurrent" type="number" min="1" max="10" class="st-input w-20 text-center" />
+          <input v-model.number="downloadSettings.concurrent" type="number" min="1" max="10" class="st-input w-20 text-center" />
         </div>
       </div>
 
@@ -270,12 +264,12 @@ const retryCount = ref(3);
               <span class="st-label">HTTP 代理</span>
               <span class="st-desc">通过代理服务器访问视频网站</span>
             </div>
-            <button type="button" class="st-toggle" :class="{ on: proxyEnabled }" role="switch" :aria-checked="proxyEnabled" @click="proxyEnabled = !proxyEnabled">
+            <button type="button" class="st-toggle" :class="{ on: downloadSettings.proxyEnabled }" role="switch" :aria-checked="downloadSettings.proxyEnabled" @click="downloadSettings.proxyEnabled = !downloadSettings.proxyEnabled">
               <span class="knob"></span>
             </button>
           </div>
           <div class="mt-3">
-            <input v-model="proxyUrl" type="text" placeholder="http://127.0.0.1:7890" class="st-input w-full font-mono" :disabled="!proxyEnabled" />
+            <input v-model="downloadSettings.proxyUrl" type="text" placeholder="http://127.0.0.1:7890" class="st-input w-full font-mono" :disabled="!downloadSettings.proxyEnabled" />
           </div>
         </div>
 

@@ -8,7 +8,6 @@ import {
   Video,
   Music,
   Clock,
-  Pause,
   X,
   Plus,
   Inbox,
@@ -20,7 +19,7 @@ import {
   formatEta,
 } from "../composables/useDownloads";
 
-const { active, activeCount, completedCount, totalSpeed, diskUsage, removeActive } = useDownloads();
+const { active, activeCount, completedCount, totalSpeed, diskUsage, cancel } = useDownloads();
 
 const speedMB = computed(() => (totalSpeed.value / 1048576).toFixed(1));
 const diskGB = computed(() => (diskUsage.value / 1073741824).toFixed(1));
@@ -128,15 +127,10 @@ const stats = computed(() => [
           <!-- Controls -->
           <div class="flex items-center gap-1 shrink-0">
             <button
-              class="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              aria-label="暂停"
-            >
-              <Pause class="w-4 h-4" />
-            </button>
-            <button
-              class="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              aria-label="取消"
-              @click="removeActive(d.id)"
+              class="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              :aria-label="d.status === 'cancelling' ? '正在取消' : '取消'"
+              :disabled="d.status === 'cancelling'"
+              @click="cancel(d.id)"
             >
               <X class="w-4 h-4" />
             </button>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import {
   Loader2,
   ScanLine,
@@ -27,9 +27,11 @@ import {
   resolveUrl,
   type ResolveResult,
 } from "../services/ytdlp";
-import { useDownloads } from "../composables/useDownloads";
+import { useDownloads, type DownloadTask } from "../composables/useDownloads";
+import { useDownloadSettings } from "../composables/useDownloadSettings";
 
 const { start: startTask } = useDownloads();
+const { settings: downloadSettings } = useDownloadSettings();
 
 /* ---- 交互状态 ---- */
 const url = ref("https://www.youtube.com/playlist?list=PLrFn9SKbK2RvTnQ8mZkLp3Hx...");
@@ -41,43 +43,92 @@ function detectMode() {
     url.value.includes("playlist") || url.value.includes("list=") ? "playlist" : "single";
 }
 
+function singleFormatLabel(format: string): string {
+  return format === "MP4" ? "MP4 视频" : format;
+}
+
 /* ---- 单视频模式选项 ---- */
-const singleFormat = ref("MP4 视频");
-const singleQuality = ref("1080p");
-const singlePath = ref("~/Downloads/Pulse/");
+const singleFormat = ref(singleFormatLabel(downloadSettings.format));
+const singleQuality = ref(downloadSettings.quality);
+const singlePath = ref(downloadSettings.downloadPath);
 const singleSubs = ref(true);
 const singleThumb = ref(false);
 const singleKeepFormat = ref(false);
 
+const singleDirty = {
+  format: false,
+  quality: false,
+  path: false,
+};
+
 /* ---- 播放列表数据 ---- */
 interface PlaylistItem {
+  index: number;
   no: string;
   title: string;
   duration: string;
   size: string;
   format: string;
   selected: boolean;
+  status: "unselected" | "ready" | "downloading" | "completed" | "failed" | "cancelled";
 }
 const playlist = ref<PlaylistItem[]>([]);
 const playlistTitle = ref("");
 const playlistUploader = ref("");
 const playlistCount = ref(0);
 const playlistSize = ref("—");
+const batchTask = ref<DownloadTask | null>(null);
 
 const selectedCount = computed(() => playlist.value.filter((i) => i.selected).length);
 const allSelected = computed(() => selectedCount.value === playlist.value.length);
 function toggleAll() {
   const next = !allSelected.value;
-  playlist.value.forEach((i) => (i.selected = next));
+  playlist.value.forEach((item) => {
+    item.selected = next;
+    if (!batchTask.value) item.status = next ? "ready" : "unselected";
+  });
 }
 
-const batchQuality = ref("1080p");
-const batchFormat = ref("MP4");
+const batchQuality = ref(downloadSettings.quality);
+const batchFormat = ref(downloadSettings.format);
 
 /* ---- 通用选项 ---- */
-const commonPath = ref("~/Downloads/Pulse/");
+const commonPath = ref(downloadSettings.downloadPath);
 const commonSubs = ref(true);
 const commonThumb = ref(false);
+
+const batchDirty = {
+  quality: false,
+  format: false,
+  path: false,
+};
+
+watch(() => downloadSettings.quality, (quality) => {
+  if (!singleDirty.quality) singleQuality.value = quality;
+  if (!batchDirty.quality) batchQuality.value = quality;
+});
+
+watch(() => downloadSettings.format, (format) => {
+  if (!singleDirty.format) singleFormat.value = singleFormatLabel(format);
+  if (!batchDirty.format) batchFormat.value = format;
+});
+
+watch(() => downloadSettings.downloadPath, (path) => {
+  if (!singleDirty.path) singlePath.value = path;
+  if (!batchDirty.path) commonPath.value = path;
+});
+
+watch(() => batchTask.value?.status, (status) => {
+  if (!status || status === "pending" || status === "downloading" || status === "cancelling") return;
+  const playlistStatus = status === "completed"
+    ? "completed"
+    : status === "cancelled"
+      ? "cancelled"
+      : "failed";
+  playlist.value.forEach((item) => {
+    if (item.selected) item.status = playlistStatus;
+  });
+});
 
 /* ---- 解析 / 下载状态 ---- */
 const resolving = ref(false);
@@ -92,12 +143,14 @@ function formatDuration(sec: number | null): string {
 
 function seedItems(entries: { id: string; title: string; duration: number | null }[]): PlaylistItem[] {
   return entries.map((e, idx) => ({
+    index: idx + 1,
     no: String(idx + 1).padStart(2, "0"),
     title: e.title,
     duration: formatDuration(e.duration),
     size: "—",
     format: batchFormat.value,
     selected: true,
+    status: "ready",
   }));
 }
 
@@ -148,9 +201,11 @@ async function startSingle() {
     format: mapFormat(singleFormat.value),
     downloadPath: singlePath.value,
     quality: singleQuality.value,
-    filenameTemplate: "%(title)s.%(ext)s",
+    filenameTemplate: downloadSettings.filenameTemplate,
     subtitles: singleSubs.value,
     thumbnail: singleThumb.value,
+    keepOriginalFormat: singleKeepFormat.value && !singleFormat.value.includes("MP3"),
+    proxy: downloadSettings.proxyEnabled ? downloadSettings.proxyUrl : undefined,
   });
 }
 
@@ -160,18 +215,22 @@ async function startBatch() {
     feedback.value = "请先勾选要下载的视频";
     return;
   }
-  feedback.value = "已加入下载队列";
-  // 播放列表整体批量下载：直接交给 yt-dlp 拉取整个列表（勾选用于 UI 展示）。
-  await startTask({
+  feedback.value = `已将 ${selected.length} 个视频加入下载队列`;
+  batchTask.value = await startTask({
     url: url.value.trim(),
     title: playlistTitle.value || "播放列表",
     kind: batchFormat.value.includes("MP3") ? "audio" : "video",
     format: mapFormat(batchFormat.value),
     downloadPath: commonPath.value,
     quality: batchQuality.value,
-    filenameTemplate: "%(title)s.%(ext)s",
+    filenameTemplate: downloadSettings.filenameTemplate,
     subtitles: commonSubs.value,
     thumbnail: commonThumb.value,
+    proxy: downloadSettings.proxyEnabled ? downloadSettings.proxyUrl : undefined,
+    playlistItems: selected.map((item) => item.index),
+  });
+  playlist.value.forEach((item) => {
+    item.status = item.selected ? "downloading" : "unselected";
   });
 }
 
@@ -249,7 +308,7 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
       <div class="mb-5">
         <label class="ydl-label">输出格式</label>
         <div class="relative">
-          <select v-model="singleFormat" class="ydl-select">
+          <select v-model="singleFormat" class="ydl-select" @change="singleDirty.format = true">
             <option>MP4 视频</option>
             <option>MP3 音频</option>
             <option>WebM</option>
@@ -273,7 +332,7 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
             :key="q.v"
             class="ydl-q-card"
           >
-            <input type="radio" name="single-quality" :value="q.v" v-model="singleQuality" />
+            <input type="radio" name="single-quality" :value="q.v" v-model="singleQuality" @change="singleDirty.quality = true" />
             <div class="ydl-q-inner">
               <div class="flex items-center justify-between mb-1.5">
                 <span class="text-[14px] font-semibold text-foreground">{{ q.name }}</span>
@@ -295,7 +354,7 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
         <div class="flex items-stretch gap-2">
           <div class="relative flex-1">
             <Folder class="w-[18px] h-[18px] absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-            <input v-model="singlePath" type="text" class="ydl-input pl-10 pr-3 h-11 font-mono" />
+            <input v-model="singlePath" type="text" class="ydl-input pl-10 pr-3 h-11 font-mono" @input="singleDirty.path = true" />
           </div>
           <button type="button" class="ydl-btn-ghost px-4 h-11 rounded-lg" aria-label="浏览文件夹">
             <FolderOpen class="w-4 h-4" />
@@ -411,14 +470,21 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
             class="pl-row"
             :data-selected="row.selected"
           >
-            <input type="checkbox" class="ydl-check" v-model="row.selected" />
+            <input
+              type="checkbox"
+              class="ydl-check"
+              v-model="row.selected"
+              @change="!batchTask && (row.status = row.selected ? 'ready' : 'unselected')"
+            />
             <span class="font-mono text-[12px] text-muted-foreground">{{ row.no }}</span>
             <div class="thumb"><Play class="w-3.5 h-3.5" /></div>
             <span class="text-[14px] text-foreground truncate">{{ row.title }}</span>
             <span class="font-mono text-[13px] text-muted-foreground">{{ row.duration }}</span>
             <span class="font-mono text-[13px] text-muted-foreground">{{ row.size }}</span>
             <span class="ydl-tag">{{ row.format }}</span>
-            <span class="text-[12px] text-muted-foreground">待下载</span>
+            <span class="text-[12px] text-muted-foreground">
+              {{ row.status === "unselected" ? "未选择" : row.status === "ready" ? "待下载" : row.status === "downloading" ? "下载中" : row.status === "completed" ? "批次已完成" : row.status === "cancelled" ? "已取消" : "批次失败" }}
+            </span>
           </label>
         </div>
       </div>
@@ -431,7 +497,7 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
         </span>
         <div class="flex-1 min-w-[12px]"></div>
         <div class="select-wrap">
-          <select v-model="batchQuality" class="ydl-select-sm" aria-label="清晰度">
+          <select v-model="batchQuality" class="ydl-select-sm" aria-label="清晰度" @change="batchDirty.quality = true">
             <option>1080p</option>
             <option>720p</option>
             <option>480p</option>
@@ -439,7 +505,7 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
           <span class="chev"><ChevronDown class="w-3.5 h-3.5" /></span>
         </div>
         <div class="select-wrap">
-          <select v-model="batchFormat" class="ydl-select-sm" aria-label="格式">
+          <select v-model="batchFormat" class="ydl-select-sm" aria-label="格式" @change="batchDirty.format = true">
             <option>MP4</option>
             <option>MP3</option>
             <option>WebM</option>
@@ -475,7 +541,7 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
         <div class="flex items-stretch gap-2">
           <div class="relative flex-1">
             <Folder class="w-[18px] h-[18px] absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-            <input v-model="commonPath" type="text" class="ydl-input pl-10 pr-3 h-11 font-mono" />
+            <input v-model="commonPath" type="text" class="ydl-input pl-10 pr-3 h-11 font-mono" @input="batchDirty.path = true" />
           </div>
           <button type="button" class="ydl-btn-ghost px-4 h-11 rounded-lg" aria-label="浏览文件夹">
             <FolderOpen class="w-4 h-4" />

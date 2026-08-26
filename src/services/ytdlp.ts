@@ -18,6 +18,7 @@ export interface PlaylistEntry {
 
 /** Options describing a single download task (maps to Rust `DownloadOptions`). */
 export interface DownloadOptions {
+  taskId: string;
   url: string;
   downloadPath: string;
   format: string;
@@ -25,12 +26,15 @@ export interface DownloadOptions {
   filenameTemplate: string;
   subtitles: boolean;
   thumbnail: boolean;
+  keepOriginalFormat?: boolean;
   proxy?: string;
+  playlistItems?: number[];
 }
 
 /** Streamed progress event pushed from Rust during a download. */
 export interface ProgressEvent {
-  type: "started" | "progress" | "finished" | "error";
+  type: "started" | "progress" | "finished" | "cancelled" | "error";
+  taskId?: string;
   url?: string;
   percent?: number;
   downloadedBytes?: number;
@@ -107,10 +111,12 @@ export function checkVersion(binary?: string): Promise<string> {
   return invoke<string>("ytdlp_version", { binary: binary ?? getBinary() });
 }
 
-/**
- * Start a download and receive progress events.
- * Returns a promise that resolves when the process finishes (or rejects on error).
- */
+/** Stop a running download task managed by the Rust backend. */
+export function cancelDownload(taskId: string): Promise<void> {
+  return invoke<void>("cancel_download", { taskId });
+}
+
+/** Start a download and resolve after the managed process is spawned. */
 export async function startDownload(
   options: DownloadOptions,
   onEvent?: (ev: ProgressEvent) => void,
@@ -121,6 +127,7 @@ export async function startDownload(
   }
   await invoke<string>("start_download", {
     req: {
+      taskId: options.taskId,
       url: options.url,
       downloadPath: options.downloadPath,
       format: options.format,
@@ -128,7 +135,9 @@ export async function startDownload(
       filenameTemplate: options.filenameTemplate,
       subtitles: options.subtitles,
       thumbnail: options.thumbnail,
+      keepOriginalFormat: options.keepOriginalFormat ?? false,
       proxy: options.proxy ?? undefined,
+      playlistItems: options.playlistItems ?? undefined,
       binary: getBinary(),
     },
     onEvent: channel,
