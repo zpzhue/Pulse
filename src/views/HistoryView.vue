@@ -1,23 +1,31 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import {
   Search,
   ChevronDown,
   Play,
   Music,
-  Ellipsis,
+  MoreHorizontal,
   History,
   FolderOpen,
   Trash2,
   Download,
+  RotateCcw,
+  CheckCircle2,
+  CircleX,
+  Ban,
+  ListFilter,
+  Info,
+  X,
 } from "lucide-vue-next";
-import { useDownloads, formatBytes } from "../composables/useDownloads";
+import { useDownloads, formatBytes, type DownloadTask } from "../composables/useDownloads";
 import { openFolder } from "../services/ytdlp";
 
 type FileType = "video" | "audio";
 
 interface Row {
   id: string;
+  task: DownloadTask;
   icon: "play" | "music";
   title: string;
   source: string;
@@ -64,6 +72,7 @@ const STATUS_TEXT: Record<Row["status"], string> = {
 const records = computed<Row[]>(() =>
   history.value.map((t) => ({
     id: t.id,
+    task: t,
     icon: t.kind === "audio" ? "music" : "play",
     title: t.title,
     source: sourceOf(t.url),
@@ -80,8 +89,15 @@ const records = computed<Row[]>(() =>
 const keyword = ref("");
 const filter = ref<"all" | FileType>("all");
 const sortDesc = ref(true);
+const activeMenuId = ref<string | null>(null);
+const detailRow = ref<Row | null>(null);
 const PAGE_SIZE = 20;
 const visibleCount = ref(PAGE_SIZE);
+
+watch([keyword, filter, sortDesc], () => {
+  visibleCount.value = PAGE_SIZE;
+  activeMenuId.value = null;
+});
 
 const counts = computed(() => ({
   all: records.value.length,
@@ -117,146 +133,432 @@ async function openRecordFolder(row: Row) {
 
 /** Re-enqueue a history record with the current settings. */
 function restart(row: Row) {
+  activeMenuId.value = null;
   restartFromHistory(row.id);
+}
+
+function remove(row: Row) {
+  activeMenuId.value = null;
+  removeHistory(row.id);
+}
+
+function showDetails(row: Row) {
+  activeMenuId.value = null;
+  detailRow.value = row;
+}
+
+async function openFolderFromMenu(row: Row) {
+  activeMenuId.value = null;
+  await openRecordFolder(row);
+}
+
+function statusIcon(status: Row["status"]) {
+  if (status === "completed") return CheckCircle2;
+  if (status === "cancelled") return Ban;
+  return CircleX;
 }
 
 const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s + (t.downloadedBytes || 0), 0)));
 </script>
 
 <template>
-  <div class="max-w-[960px] mx-auto flex flex-col gap-5">
-    <!-- Search & Filter -->
-    <div>
-      <div class="flex items-center gap-3 mb-3">
-        <div class="relative flex-1">
-          <Search
-            class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
-          />
+  <div class="mx-auto flex w-full max-w-[1180px] flex-col gap-5">
+    <header class="flex items-end justify-between gap-4">
+      <div>
+        <h2 class="text-h2 text-foreground">历史记录</h2>
+        <p class="mt-1 text-body-sm text-muted-foreground">管理已完成、失败和取消的下载任务</p>
+      </div>
+      <div class="hidden text-right text-caption text-muted-foreground sm:block">
+        <div class="font-mono text-foreground tabular-nums">{{ counts.all }}</div>
+        <div>全部记录</div>
+      </div>
+    </header>
+
+    <section class="rounded-lg border border-border bg-card p-3 sm:p-4">
+      <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div class="relative min-w-0 flex-1 lg:max-w-[480px]">
+          <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             v-model="keyword"
-            type="text"
-            placeholder="搜索下载记录..."
-            class="w-full h-10 pl-10 pr-4 ydl-input"
+            type="search"
+            placeholder="搜索标题或来源..."
+            class="h-10 w-full rounded-md border border-input bg-transparent py-2 pl-10 pr-4 text-[13px] outline-none transition-colors placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
           />
         </div>
-        <button
-          type="button"
-          class="ydl-sort-btn"
-          :title="sortDesc ? '当前：最新在前，点击切换' : '当前：最旧在前，点击切换'"
-          @click="sortDesc = !sortDesc"
-        >
-          <span>按时间排序</span>
-          <ChevronDown class="w-3.5 h-3.5 text-muted-foreground transition-transform" :class="{ 'rotate-180': !sortDesc }" />
-        </button>
-      </div>
 
-      <!-- Filter tabs -->
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          class="ydl-filter-pill"
-          :class="{ 'is-active': filter === 'all' }"
-          @click="filter = 'all'"
-        >
-          <span>全部</span>
-          <span class="opacity-80">{{ counts.all }}</span>
-        </button>
-        <button
-          type="button"
-          class="ydl-filter-pill"
-          :class="{ 'is-active': filter === 'video' }"
-          @click="filter = 'video'"
-        >
-          <span>视频</span>
-          <span class="opacity-80">{{ counts.video }}</span>
-        </button>
-        <button
-          type="button"
-          class="ydl-filter-pill"
-          :class="{ 'is-active': filter === 'audio' }"
-          @click="filter = 'audio'"
-        >
-          <span>音频</span>
-          <span class="opacity-80">{{ counts.audio }}</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- History table -->
-    <div class="bg-card rounded-lg border border-border overflow-hidden">
-      <div class="hd-grid hd-head">
-        <span>名称</span>
-        <span>来源</span>
-        <span>文件信息</span>
-        <span>时间</span>
-        <span>状态</span>
-        <span>操作</span>
-      </div>
-
-      <div v-if="filtered.length === 0" class="py-16 text-center">
-        <History class="w-8 h-8 mx-auto mb-3 text-muted-foreground opacity-60" />
-        <p class="text-body-sm text-muted-foreground">没有找到匹配的下载记录</p>
-      </div>
-
-      <div v-else>
-        <div v-for="row in paged" :key="row.id" class="hd-grid hd-row">
-          <div class="flex items-center gap-3 min-w-0">
-            <div class="thumb shrink-0">
-              <Play v-if="row.icon === 'play'" class="w-4 h-4" />
-              <Music v-else class="w-4 h-4" />
-            </div>
-            <span class="text-[14px] text-foreground truncate">{{ row.title }}</span>
+        <div class="flex items-center justify-between gap-3 lg:justify-end">
+          <div class="flex items-center rounded-md bg-muted p-1" role="tablist" aria-label="文件类型筛选">
+            <button
+              type="button"
+              class="hd-filter"
+              :class="{ 'is-active': filter === 'all' }"
+              role="tab"
+              :aria-selected="filter === 'all'"
+              @click="filter = 'all'"
+            >
+              全部 <span>{{ counts.all }}</span>
+            </button>
+            <button
+              type="button"
+              class="hd-filter"
+              :class="{ 'is-active': filter === 'video' }"
+              role="tab"
+              :aria-selected="filter === 'video'"
+              @click="filter = 'video'"
+            >
+              视频 <span>{{ counts.video }}</span>
+            </button>
+            <button
+              type="button"
+              class="hd-filter"
+              :class="{ 'is-active': filter === 'audio' }"
+              role="tab"
+              :aria-selected="filter === 'audio'"
+              @click="filter = 'audio'"
+            >
+              音频 <span>{{ counts.audio }}</span>
+            </button>
           </div>
-          <span class="src-tag">{{ row.source }}</span>
-          <span class="font-mono text-[13px] text-muted-foreground">{{ row.size }} / {{ row.format }}</span>
-          <span class="text-[13px] text-muted-foreground whitespace-nowrap">{{ row.time }}</span>
-          <span class="status" :class="row.status">
-            <span class="dot"></span>
-            {{ STATUS_TEXT[row.status] }}
-          </span>
-          <div class="flex items-center gap-1">
-            <button
-              type="button"
-              class="ydl-action-btn"
-              aria-label="打开文件夹"
-              :disabled="!row.downloadPath"
-              :title="row.downloadPath ? '打开文件夹' : '该记录未保存下载目录'"
-              @click="openRecordFolder(row)"
-            >
-              <FolderOpen class="w-4 h-4" />
+          <button
+            type="button"
+            class="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-border px-3 text-[13px] text-foreground transition-colors hover:bg-muted"
+            :title="sortDesc ? '当前：最新在前，点击切换' : '当前：最旧在前，点击切换'"
+            @click="sortDesc = !sortDesc"
+          >
+            <ListFilter class="h-3.5 w-3.5 text-muted-foreground" />
+            <span class="hidden sm:inline">{{ sortDesc ? '最新优先' : '最早优先' }}</span>
+            <ChevronDown class="h-3.5 w-3.5 text-muted-foreground transition-transform" :class="{ 'rotate-180': !sortDesc }" />
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="overflow-hidden rounded-lg border border-border bg-card" @click="activeMenuId = null">
+      <div class="overflow-x-auto">
+        <div class="min-w-[840px]">
+          <div class="hd-grid hd-head">
+            <span>下载内容</span>
+            <span>来源</span>
+            <span>文件</span>
+            <span>完成时间</span>
+            <span>状态</span>
+            <span class="text-right">操作</span>
+          </div>
+
+          <div v-if="filtered.length === 0" class="py-20 text-center">
+            <History class="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-60" />
+            <p class="text-body-sm text-muted-foreground">没有找到匹配的下载记录</p>
+            <button v-if="keyword || filter !== 'all'" type="button" class="mt-3 text-[13px] text-primary hover:underline" @click="keyword = ''; filter = 'all'">
+              清除筛选条件
             </button>
-            <button
-              type="button"
-              class="ydl-action-btn"
-              aria-label="重新下载"
-              title="按当前设置重新下载"
-              @click="restart(row)"
-            >
-              <Download class="w-4 h-4" />
-            </button>
-            <button type="button" class="ydl-action-btn" aria-label="删除" @click="removeHistory(row.id)">
-              <Trash2 class="w-4 h-4" />
-            </button>
-            <button type="button" class="ydl-action-btn" aria-label="更多操作" disabled title="开发中，敬请期待">
-              <Ellipsis class="w-4 h-4" />
-            </button>
+          </div>
+
+          <div v-else>
+            <article v-for="row in paged" :key="row.id" class="hd-grid hd-row">
+              <div class="flex min-w-0 items-center gap-3">
+                <div class="hd-media-icon shrink-0" :class="row.type">
+                  <Play v-if="row.icon === 'play'" class="h-4 w-4" />
+                  <Music v-else class="h-4 w-4" />
+                </div>
+                <div class="min-w-0">
+                  <p class="truncate text-[14px] font-medium text-foreground" :title="row.title">{{ row.title }}</p>
+                </div>
+              </div>
+              <span class="hd-source" :title="row.source">{{ row.source }}</span>
+              <span class="font-mono text-[12px] text-muted-foreground tabular-nums">{{ row.size }} <span class="text-border">/</span> {{ row.format }}</span>
+              <span class="whitespace-nowrap text-[12px] text-muted-foreground">{{ row.time }}</span>
+              <span class="hd-status" :class="row.status">
+                <component :is="statusIcon(row.status)" class="h-3.5 w-3.5" />
+                {{ STATUS_TEXT[row.status] }}
+              </span>
+              <div class="relative flex items-center justify-end gap-1">
+                <button
+                  v-if="row.status === 'failed'"
+                  type="button"
+                  class="hd-icon-btn"
+                  aria-label="重新下载"
+                  title="按当前设置重新下载"
+                  @click.stop="restart(row)"
+                >
+                  <RotateCcw class="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  class="hd-icon-btn"
+                  :aria-label="activeMenuId === row.id ? '关闭更多操作' : '更多操作'"
+                  title="更多操作"
+                  @click.stop="activeMenuId = activeMenuId === row.id ? null : row.id"
+                >
+                  <MoreHorizontal class="h-4 w-4" />
+                </button>
+                <div v-if="activeMenuId === row.id" class="hd-menu" @click.stop>
+                  <button type="button" @click="showDetails(row)">
+                    <Info class="h-4 w-4" />
+                    查看详情
+                  </button>
+                  <button type="button" :disabled="!row.downloadPath" @click="openFolderFromMenu(row)">
+                    <FolderOpen class="h-4 w-4" />
+                    {{ row.downloadPath ? '打开所在文件夹' : '下载目录不可用' }}
+                  </button>
+                  <button v-if="row.status === 'failed'" type="button" @click="restart(row)">
+                    <Download class="h-4 w-4" />
+                    重新下载
+                  </button>
+                  <button type="button" class="is-danger" @click="remove(row)">
+                    <Trash2 class="h-4 w-4" />
+                    删除记录
+                  </button>
+                </div>
+              </div>
+            </article>
           </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- Load more -->
     <div v-if="hasMore" class="flex justify-center">
-      <button type="button" class="ydl-load-more" @click="visibleCount += PAGE_SIZE">
-        <span>加载更多（还有 {{ filtered.length - paged.length }} 条）</span>
-        <ChevronDown class="w-4 h-4" />
+      <button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-border px-4 text-[13px] text-foreground transition-colors hover:bg-muted" @click="visibleCount += PAGE_SIZE">
+        加载更多 <span class="font-mono text-muted-foreground">{{ filtered.length - paged.length }}</span>
+        <ChevronDown class="h-4 w-4" />
       </button>
     </div>
 
-    <!-- Footer -->
-    <footer class="flex items-center justify-between text-[12px] text-muted-foreground pt-4 border-t border-border">
-      <span>共 {{ counts.all }} 条记录 · 总计 {{ totalFormat }}</span>
-      <span>Pulse · 本地存储</span>
+    <footer class="flex items-center justify-between border-t border-border pt-4 text-[12px] text-muted-foreground">
+      <span>共 {{ counts.all }} 条记录 · 已下载 {{ totalFormat }}</span>
+      <span>本地存储</span>
     </footer>
+
+    <Teleport to="body">
+      <div
+        v-if="detailRow"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+        @click.self="detailRow = null"
+      >
+        <section class="hd-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="history-detail-title">
+          <header class="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+            <div class="min-w-0">
+              <p class="text-caption text-muted-foreground">下载任务详情</p>
+              <h3 id="history-detail-title" class="mt-1 truncate text-[15px] font-semibold text-foreground" :title="detailRow.title">{{ detailRow.title }}</h3>
+            </div>
+            <button type="button" class="hd-icon-btn shrink-0" aria-label="关闭详情" title="关闭" @click="detailRow = null">
+              <X class="h-4 w-4" />
+            </button>
+          </header>
+
+          <dl class="grid grid-cols-[96px_minmax(0,1fr)] gap-x-4 gap-y-3 px-5 py-5 text-[13px]">
+            <dt>状态</dt>
+            <dd><span class="hd-status" :class="detailRow.status"><component :is="statusIcon(detailRow.status)" class="h-3.5 w-3.5" />{{ STATUS_TEXT[detailRow.status] }}</span></dd>
+            <dt>来源链接</dt>
+            <dd class="break-all font-mono text-[12px] text-foreground">{{ detailRow.task.url }}</dd>
+            <dt>文件格式</dt>
+            <dd class="font-mono text-foreground">{{ detailRow.format }}</dd>
+            <dt>已下载</dt>
+            <dd class="font-mono text-foreground">{{ detailRow.size }}</dd>
+            <dt v-if="detailRow.task.totalBytes">文件总大小</dt>
+            <dd v-if="detailRow.task.totalBytes" class="font-mono text-foreground">{{ formatBytes(detailRow.task.totalBytes) }}</dd>
+            <dt>创建时间</dt>
+            <dd class="text-foreground">{{ new Date(detailRow.task.createdAt).toLocaleString() }}</dd>
+            <dt v-if="detailRow.task.finishedAt">结束时间</dt>
+            <dd v-if="detailRow.task.finishedAt" class="text-foreground">{{ new Date(detailRow.task.finishedAt).toLocaleString() }}</dd>
+            <dt v-if="detailRow.downloadPath">保存位置</dt>
+            <dd v-if="detailRow.downloadPath" class="break-all font-mono text-[12px] text-foreground">{{ detailRow.downloadPath }}</dd>
+            <dt v-if="detailRow.task.playlistTotal && detailRow.task.playlistTotal > 1">播放列表进度</dt>
+            <dd v-if="detailRow.task.playlistTotal && detailRow.task.playlistTotal > 1" class="font-mono text-foreground">{{ detailRow.task.playlistIndex ?? 0 }} / {{ detailRow.task.playlistTotal }}</dd>
+            <dt v-if="detailRow.task.subtitles || detailRow.task.thumbnail">附加内容</dt>
+            <dd v-if="detailRow.task.subtitles || detailRow.task.thumbnail" class="text-foreground">{{ [detailRow.task.subtitles ? '字幕' : '', detailRow.task.thumbnail ? '缩略图' : ''].filter(Boolean).join('、') }}</dd>
+            <dt v-if="detailRow.task.error">错误信息</dt>
+            <dd v-if="detailRow.task.error" class="break-words text-[12px] text-[color:var(--state-error)]">{{ detailRow.task.error }}</dd>
+          </dl>
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+.hd-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 2.2fr) minmax(104px, 0.75fr) minmax(120px, 0.8fr) minmax(104px, 0.8fr) minmax(88px, 0.65fr) 84px;
+  column-gap: 20px;
+  align-items: center;
+}
+
+.hd-head {
+  min-height: 42px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--ydl-border);
+  background: var(--ydl-surface-2);
+  color: var(--ydl-muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.hd-row {
+  min-height: 72px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--ydl-border);
+  transition: background-color 150ms ease;
+}
+
+.hd-row:last-child {
+  border-bottom: 0;
+}
+
+.hd-row:hover {
+  background: color-mix(in srgb, var(--ydl-primary) 4%, transparent);
+}
+
+.hd-filter {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 4px;
+  color: var(--ydl-muted-foreground);
+  font-size: 12px;
+  transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.hd-filter span {
+  margin-left: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.hd-filter:hover {
+  color: var(--ydl-foreground);
+}
+
+.hd-filter.is-active {
+  background: var(--ydl-card);
+  color: var(--ydl-foreground);
+  box-shadow: var(--shadow-static);
+}
+
+.hd-media-icon {
+  display: flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ydl-border);
+  border-radius: 6px;
+  background: var(--ydl-muted);
+  color: var(--ydl-muted-foreground);
+}
+
+.hd-media-icon.video {
+  color: var(--ydl-primary);
+}
+
+.hd-source {
+  overflow: hidden;
+  color: var(--ydl-muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hd-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.hd-status.completed {
+  color: var(--state-success);
+}
+
+.hd-status.failed {
+  color: var(--state-error);
+}
+
+.hd-status.cancelled {
+  color: var(--state-warning);
+}
+
+.hd-icon-btn {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--ydl-muted-foreground);
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.hd-icon-btn:hover {
+  background: var(--ydl-muted);
+  color: var(--ydl-foreground);
+}
+
+.hd-menu {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 176px;
+  overflow: hidden;
+  border: 1px solid var(--ydl-border);
+  border-radius: 6px;
+  background: var(--ydl-popover);
+  box-shadow: var(--shadow-float);
+}
+
+.hd-menu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  color: var(--ydl-foreground);
+  font-size: 12px;
+  text-align: left;
+  transition: background-color 150ms ease;
+}
+
+.hd-menu button:hover:not(:disabled) {
+  background: var(--ydl-muted);
+}
+
+.hd-menu button:disabled {
+  cursor: not-allowed;
+  color: var(--ydl-muted-foreground);
+  opacity: 0.55;
+}
+
+.hd-menu .is-danger {
+  border-top: 1px solid var(--ydl-border);
+  color: var(--state-error);
+}
+
+.hd-detail-dialog {
+  width: min(620px, 100%);
+  max-height: min(720px, 85vh);
+  overflow-y: auto;
+  border: 1px solid var(--ydl-border);
+  border-radius: 8px;
+  background: var(--ydl-popover);
+  box-shadow: var(--shadow-overlay);
+}
+
+.hd-detail-dialog dt {
+  color: var(--ydl-muted-foreground);
+}
+
+.hd-detail-dialog dd {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .hd-head,
+  .hd-row {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+}
+</style>
