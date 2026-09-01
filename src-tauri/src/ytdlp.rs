@@ -32,6 +32,26 @@ pub struct PlaylistEntry {
     pub title: String,
     /// Duration in seconds; `null` when unknown (flat playlist mode).
     pub duration: Option<f64>,
+    /// Watch URL of this entry so each row can be downloaded individually
+    /// instead of via the playlist URL + --playlist-items.
+    pub url: String,
+}
+
+/// One downloadable video stream of a resolved single video. Audio-only
+/// streams are filtered out during parsing; `video_only` marks streams
+/// that need `+bestaudio` appended at download time.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoFormat {
+    pub format_id: String,
+    /// Container/extension reported by yt-dlp (mp4, webm, ...).
+    pub ext: String,
+    pub width: Option<u64>,
+    pub height: Option<u64>,
+    /// Exact size when known, else approximate; `null` when unknown.
+    pub filesize: Option<u64>,
+    /// True when the stream carries no audio track.
+    pub video_only: bool,
 }
 
 #[derive(Serialize)]
@@ -41,8 +61,13 @@ pub struct ResolveResult {
     pub title: String,
     pub uploader: String,
     pub count: usize,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// Total duration in seconds for single videos; `null` otherwise.
+    pub duration: Option<f64>,
+    /// Playlist entries; always serialized (possibly empty) so the frontend
+    /// can rely on a stable array contract.
     pub entries: Vec<PlaylistEntry>,
+    /// Selectable video streams of a single video; empty for playlists.
+    pub formats: Vec<VideoFormat>,
 }
 
 #[derive(Deserialize)]
@@ -56,7 +81,7 @@ pub struct ResolveRequest {
     pub cookie_path: Option<String>,
 }
 
-/// Fetch metadata (title / playlist entries) without downloading.
+/// Fetch metadata (title / playlist entries / single-video formats) without downloading.
 pub fn resolve(req: ResolveRequest) -> Result<ResolveResult, String> {
     let binary = binary_of(&req.binary);
     let cookie_path = validated_cookie_path(req.cookie_path)?;
@@ -80,22 +105,80 @@ pub fn resolve(req: ResolveRequest) -> Result<ResolveResult, String> {
         return Err(String::from_utf8_lossy(&output.stderr).trim_end().to_string());
     }
 
+    parse_resolve_json(&output.stdout)
+}
+
+/// Parse `yt-dlp --dump-single-json` output into the frontend contract.
+///
+/// Single videos carry the full metadata (including the formats list);
+/// `--flat-playlist` entries only expose id/title/duration plus their watch
+/// URL, so `formats` stays empty for playlists.
+fn parse_resolve_json(stdout: &[u8]) -> Result<ResolveResult, String> {
     let meta: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|e| format!("解析元数据失败: {e}"))?;
+        serde_json::from_slice(stdout).map_err(|e| format!("解析元数据失败: {e}"))?;
     let kind = meta.get("_type").and_then(|v| v.as_str()).unwrap_or("video").to_string();
     let id = meta.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let title = meta.get("title").and_then(|v| v.as_str()).unwrap_or("未命名").to_string();
     let uploader = meta.get("uploader").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let duration = meta.get("duration").and_then(|v| v.as_f64());
 
     let mut entries = Vec::new();
     if let Some(list) = meta.get("entries").and_then(|v| v.as_array()) {
         for e in list {
+            let url = e
+                .get("url")
+                .and_then(|v| v.as_str())
+                .or_else(|| e.get("webpage_url").and_then(|v| v.as_str()))
+                .unwrap_or("")
+                .to_string();
             entries.push(PlaylistEntry {
                 id: e.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                 title: e.get("title").and_then(|v| v.as_str()).unwrap_or("未命名").to_string(),
                 duration: e.get("duration").and_then(|v| v.as_f64()),
+                url,
             });
         }
+    }
+
+    let mut formats = Vec::new();
+    if kind != "playlist" {
+        if let Some(list) = meta.get("formats").and_then(|v| v.as_array()) {
+            for f in list {
+                let vcodec = f.get("vcodec").and_then(|v| v.as_str()).unwrap_or("none");
+                if vcodec == "none" || vcodec.is_empty() {
+                    continue; // audio-only stream: not a selectable video row
+                }
+                let ext = f.get("ext").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if ext == "mhtml" {
+                    continue; // storyboard previews are not real downloadable streams
+                }
+                let filesize = f
+                    .get("filesize")
+                    .and_then(|v| v.as_f64())
+                    .or_else(|| f.get("filesize_approx").and_then(|v| v.as_f64()))
+                    .map(|v| v as u64);
+                let video_only = f
+                    .get("acodec")
+                    .and_then(|v| v.as_str())
+                    .map(|acodec| acodec == "none" || acodec.is_empty())
+                    .unwrap_or(false);
+                formats.push(VideoFormat {
+                    format_id: f.get("format_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    ext,
+                    width: f.get("width").and_then(|v| v.as_f64()).map(|v| v as u64),
+                    height: f.get("height").and_then(|v| v.as_f64()).map(|v| v as u64),
+                    filesize,
+                    video_only,
+                });
+            }
+        }
+        // Highest resolution first; on ties prefer the larger stream.
+        formats.sort_by(|a, b| {
+            b.height
+                .unwrap_or(0)
+                .cmp(&a.height.unwrap_or(0))
+                .then(b.filesize.unwrap_or(0).cmp(&a.filesize.unwrap_or(0)))
+        });
     }
 
     Ok(ResolveResult {
@@ -104,7 +187,9 @@ pub fn resolve(req: ResolveRequest) -> Result<ResolveResult, String> {
         title,
         uploader,
         count: entries.len(),
+        duration,
         entries,
+        formats,
     })
 }
 
@@ -124,6 +209,12 @@ pub struct DownloadOptions {
     pub subtitles: bool,
     pub thumbnail: bool,
     pub keep_original_format: bool,
+    /// Row-selected yt-dlp format id (from the resolve metadata's format
+    /// list); when absent yt-dlp applies its own default format selection.
+    pub format_id: Option<String>,
+    /// Whether the selected format carries no audio track (needs
+    /// `+bestaudio` appended at download time).
+    pub video_only: Option<bool>,
     pub proxy: Option<String>,
     pub playlist_items: Option<Vec<usize>>,
     pub rate_limit_ki_b: Option<u64>,
@@ -194,25 +285,11 @@ fn build_args(o: &DownloadOptions, ffmpeg_location: Option<&str>) -> Vec<String>
     args.push("-o".into());
     args.push(template);
 
-    // Format / quality selection.
-    let fmt = o.format.to_lowercase();
-    if fmt == "mp3" {
-        // Audio-only selector: without it yt-dlp would download the full video
-        // stream first and only then extract the audio track.
+    // Format selection: an explicitly chosen format id (row-level stream
+    // picker in the UI) wins; without one yt-dlp applies its own defaults.
+    if let Some(selector) = format_selector_for(o) {
         args.push("-f".into());
-        args.push("bestaudio/best".into());
-        args.push("-x".into());
-        args.push("--audio-format".into());
-        args.push("mp3".into());
-    } else if !o.keep_original_format {
-        args.push("-f".into());
-        args.push(format_selector(&o.quality));
-        args.push("--merge-output-format".into());
-        args.push(match fmt.as_str() {
-            "webm" => "webm",
-            "mkv" => "mkv",
-            _ => "mp4",
-        }.into());
+        args.push(selector);
     }
 
     if o.subtitles {
@@ -243,15 +320,22 @@ fn build_args(o: &DownloadOptions, ffmpeg_location: Option<&str>) -> Vec<String>
     args
 }
 
-/// Map a user-facing quality label to a yt-dlp format selector.
-fn format_selector(quality: &str) -> String {
-    match quality.to_lowercase().as_str() {
-        "best" | "最佳" => "bestvideo+bestaudio/best".to_string(),
-        "4k" | "2160p" => "bestvideo[height<=2160]+bestaudio/best".to_string(),
-        "1080p" => "bestvideo[height<=1080]+bestaudio/best".to_string(),
-        "720p" => "bestvideo[height<=720]+bestaudio/best".to_string(),
-        "480p" => "best[height<=480]/bestvideo[height<=480]+bestaudio/best".to_string(),
-        _ => "bestvideo[height<=1080]+bestaudio/best".to_string(),
+/// Build the `-f` selector from a row-picked format id. Video-only streams
+/// are combined with bestaudio (with a `/best` fallback); anything without
+/// a usable id yields None → yt-dlp's own default selection.
+fn format_selector_for(o: &DownloadOptions) -> Option<String> {
+    let raw = o.format_id.as_deref()?.trim();
+    let usable = !raw.is_empty()
+        && raw
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '/'));
+    if !usable {
+        return None;
+    }
+    if o.video_only.unwrap_or(false) {
+        Some(format!("{raw}+bestaudio/best"))
+    } else {
+        Some(raw.to_string())
     }
 }
 
@@ -914,6 +998,8 @@ mod tests {
             subtitles: false,
             thumbnail: false,
             keep_original_format: false,
+            format_id: None,
+            video_only: None,
             proxy: Some("http://127.0.0.1:7890".into()),
             playlist_items: Some(vec![1, 3, 0, 7]),
             rate_limit_ki_b: Some(512),
@@ -957,6 +1043,8 @@ mod tests {
             subtitles: false,
             thumbnail: false,
             keep_original_format: true,
+            format_id: None,
+            video_only: None,
             proxy: None,
             playlist_items: None,
             rate_limit_ki_b: None,
@@ -974,6 +1062,146 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "--no-continue"));
         assert!(!args.iter().any(|arg| arg == "--no-part"));
         assert!(!args.iter().any(|arg| arg == "--no-overwrites"));
+    }
+
+    #[test]
+    fn combines_video_only_format_with_bestaudio() {
+        let options = DownloadOptions {
+            task_id: "fmt-video-only".into(),
+            url: "https://example.test/video".into(),
+            download_path: "/tmp/pulse".into(),
+            format: "mp4".into(),
+            quality: "1080p".into(),
+            filename_template: "%(title)s.%(ext)s".into(),
+            subtitles: false,
+            thumbnail: false,
+            keep_original_format: false,
+            format_id: Some("137".into()),
+            video_only: Some(true),
+            proxy: None,
+            playlist_items: None,
+            rate_limit_ki_b: None,
+            resume: true,
+            remove_partial_files: false,
+            retries: 3,
+            cookie_path: None,
+            ffmpeg_location: None,
+            binary: None,
+        };
+        let args = build_args(&options, None);
+        let index = args.iter().position(|arg| arg == "-f").expect("format flag");
+        assert_eq!(args[index + 1], "137+bestaudio/best");
+        assert!(!args.iter().any(|arg| arg == "--merge-output-format"));
+    }
+
+    #[test]
+    fn uses_inclusive_format_id_directly() {
+        let options = DownloadOptions {
+            task_id: "fmt-inclusive".into(),
+            url: "https://example.test/video".into(),
+            download_path: "/tmp/pulse".into(),
+            format: "mp4".into(),
+            quality: "1080p".into(),
+            filename_template: "%(title)s.%(ext)s".into(),
+            subtitles: false,
+            thumbnail: false,
+            keep_original_format: false,
+            format_id: Some("18".into()),
+            video_only: Some(false),
+            proxy: None,
+            playlist_items: None,
+            rate_limit_ki_b: None,
+            resume: true,
+            remove_partial_files: false,
+            retries: 3,
+            cookie_path: None,
+            ffmpeg_location: None,
+            binary: None,
+        };
+        let args = build_args(&options, None);
+        let index = args.iter().position(|arg| arg == "-f").expect("format flag");
+        assert_eq!(args[index + 1], "18");
+        assert!(!args.iter().any(|arg| arg == "--merge-output-format"));
+    }
+
+    #[test]
+    fn ignores_unusable_format_id() {
+        let options = DownloadOptions {
+            task_id: "fmt-bad".into(),
+            url: "https://example.test/video".into(),
+            download_path: "/tmp/pulse".into(),
+            format: "mp4".into(),
+            quality: "1080p".into(),
+            filename_template: "%(title)s.%(ext)s".into(),
+            subtitles: false,
+            thumbnail: false,
+            keep_original_format: false,
+            format_id: Some("best video]; rm -rf /".into()),
+            video_only: Some(true),
+            proxy: None,
+            playlist_items: None,
+            rate_limit_ki_b: None,
+            resume: true,
+            remove_partial_files: false,
+            retries: 3,
+            cookie_path: None,
+            ffmpeg_location: None,
+            binary: None,
+        };
+        let args = build_args(&options, None);
+        assert!(!args.iter().any(|arg| arg == "-f"));
+    }
+
+    #[test]
+    fn parses_resolve_json_with_formats_and_entry_urls() {
+        let single = serde_json::json!({
+            "_type": "video",
+            "id": "abc123",
+            "title": "Sample",
+            "uploader": "Chan",
+            "duration": 91.4,
+            "formats": [
+                { "format_id": "140", "ext": "m4a", "vcodec": "none", "acodec": "mp4a.40.2", "filesize": 1000 },
+                { "format_id": "sb2", "ext": "mhtml", "vcodec": "unknown", "acodec": "none", "height": 1080 },
+                { "format_id": "137", "ext": "mp4", "vcodec": "avc1.640028", "acodec": "none", "width": 1920, "height": 1080, "filesize_approx": 104857600.0 },
+                { "format_id": "248", "ext": "webm", "vcodec": "vp9", "acodec": "none", "width": 1920, "height": 1080, "filesize": 94371840 },
+                { "format_id": "18", "ext": "mp4", "vcodec": "avc1.42001E", "acodec": "mp4a.40.2", "width": 640, "height": 360, "filesize": 20971520 }
+            ]
+        });
+        let parsed = parse_resolve_json(&serde_json::to_vec(&single).unwrap()).unwrap();
+        assert_eq!(parsed.kind, "video");
+        assert_eq!(parsed.duration, Some(91.4));
+        // Audio-only (140) and storyboard (sb2) streams are filtered out.
+        assert_eq!(parsed.formats.len(), 3);
+        // Highest resolution first; ties broken by the larger stream.
+        assert_eq!(parsed.formats[0].format_id, "137");
+        assert_eq!(parsed.formats[1].format_id, "248");
+        assert_eq!(parsed.formats[2].format_id, "18");
+        assert!(parsed.formats[0].video_only);
+        assert!(!parsed.formats[2].video_only);
+        // filesize falls back to filesize_approx.
+        assert_eq!(parsed.formats[0].filesize, Some(104_857_600));
+        assert_eq!(parsed.formats[1].filesize, Some(94_371_840));
+        assert_eq!(parsed.formats[0].ext, "mp4");
+        assert_eq!(parsed.formats[0].width, Some(1920));
+
+        let playlist = serde_json::json!({
+            "_type": "playlist",
+            "id": "pl1",
+            "title": "List",
+            "uploader": "Chan",
+            "entries": [
+                { "id": "e1", "title": "One", "duration": 10.0, "url": "https://youtu.be/e1" },
+                { "id": "e2", "title": "Two", "duration": null, "webpage_url": "https://example.test/e2" }
+            ]
+        });
+        let parsed = parse_resolve_json(&serde_json::to_vec(&playlist).unwrap()).unwrap();
+        assert_eq!(parsed.kind, "playlist");
+        assert!(parsed.formats.is_empty());
+        assert_eq!(parsed.entries.len(), 2);
+        assert_eq!(parsed.entries[0].url, "https://youtu.be/e1");
+        assert_eq!(parsed.entries[1].url, "https://example.test/e2");
+        assert_eq!(parsed.entries[1].duration, None);
     }
 
     #[test]
@@ -1035,25 +1263,19 @@ mod tests {
     }
 
     #[test]
-    fn selects_expected_format_for_quality_tokens() {
-        assert_eq!(format_selector("best"), "bestvideo+bestaudio/best");
-        assert_eq!(format_selector("1080p"), "bestvideo[height<=1080]+bestaudio/best");
-        assert_eq!(format_selector("720p"), "bestvideo[height<=720]+bestaudio/best");
-        assert_eq!(format_selector("480p"), "best[height<=480]/bestvideo[height<=480]+bestaudio/best");
-    }
-
-    #[test]
-    fn selects_audio_only_for_mp3_and_marks_single_video() {
+    fn marks_single_video_tasks_with_no_playlist() {
         let mut options = DownloadOptions {
             task_id: "test-task".into(),
             url: "https://example.test/watch?v=x&list=y".into(),
             download_path: "/tmp/pulse".into(),
-            format: "mp3".into(),
+            format: "mp4".into(),
             quality: "best".into(),
             filename_template: "%(title)s.%(ext)s".into(),
             subtitles: false,
             thumbnail: false,
             keep_original_format: false,
+            format_id: None,
+            video_only: None,
             proxy: None,
             playlist_items: None,
             rate_limit_ki_b: None,
@@ -1065,10 +1287,9 @@ mod tests {
             binary: None,
         };
         let args = build_args(&options, None);
-        let format_index = args.iter().position(|arg| arg == "-f").expect("format flag");
-        assert_eq!(args[format_index + 1], "bestaudio/best");
-        assert!(args.contains(&"-x".to_string()));
         assert!(args.iter().any(|arg| arg == "--no-playlist"));
+        // Without a row-picked format id yt-dlp applies its own selection.
+        assert!(!args.iter().any(|arg| arg == "-f"));
 
         options.playlist_items = Some(vec![2, 5]);
         let args = build_args(&options, None);

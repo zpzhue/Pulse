@@ -48,6 +48,10 @@ export interface StartSpec {
   subtitles: boolean;
   thumbnail: boolean;
   keepOriginalFormat?: boolean;
+  /** Row-selected yt-dlp format id; absent → yt-dlp default selection. */
+  formatId?: string;
+  /** Whether the picked format lacks an audio track (+bestaudio needed). */
+  videoOnly?: boolean;
   proxy?: string;
   playlistItems?: number[];
   rateLimitKiB?: number;
@@ -223,6 +227,8 @@ async function runTask(task: DownloadTask, spec: StartSpec) {
     subtitles: spec.subtitles,
     thumbnail: spec.thumbnail,
     keepOriginalFormat: spec.keepOriginalFormat,
+    formatId: spec.formatId,
+    videoOnly: spec.videoOnly,
     proxy: spec.proxy,
     playlistItems: spec.playlistItems,
     rateLimitKiB: spec.rateLimitKiB,

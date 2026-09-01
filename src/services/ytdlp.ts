@@ -11,17 +11,38 @@ export interface ResolveResult {
   uploader: string;
   count: number;
   /**
-   * Present for playlists. Rust omits the key entirely when the list is
-   * empty (serde skip_serializing_if on an empty Vec), so callers must
-   * treat this as optional and default to [].
+   * Present for playlists. Callers must still treat this as optional and
+   * default to [].
    */
   entries?: PlaylistEntry[];
+  /** Total duration in seconds for single videos; null otherwise. */
+  duration?: number | null;
+  /**
+   * Selectable video streams (video-only, sorted by resolution) for a
+   * single video; empty for playlists. Optional for old-backend tolerance.
+   */
+  formats?: VideoFormatOption[];
 }
 
 export interface PlaylistEntry {
   id: string;
   title: string;
   duration: number | null;
+  /** Watch URL of this entry, for per-row downloads. */
+  url?: string;
+}
+
+/** One selectable video stream of a resolved single video. */
+export interface VideoFormatOption {
+  formatId: string;
+  /** Container/extension reported by yt-dlp (mp4, webm, ...). */
+  ext: string;
+  width: number | null;
+  height: number | null;
+  /** Exact size when known, else approximate; null when unknown. */
+  filesize: number | null;
+  /** True when the stream carries no audio track (+bestaudio needed). */
+  videoOnly: boolean;
 }
 
 /** Options describing a single download task (maps to Rust `DownloadOptions`). */
@@ -35,6 +56,10 @@ export interface DownloadOptions {
   subtitles: boolean;
   thumbnail: boolean;
   keepOriginalFormat?: boolean;
+  /** Row-selected yt-dlp format id; absent → yt-dlp default selection. */
+  formatId?: string;
+  /** Whether the picked format lacks an audio track (+bestaudio needed). */
+  videoOnly?: boolean;
   proxy?: string;
   playlistItems?: number[];
   rateLimitKiB?: number;
@@ -212,6 +237,8 @@ export async function startDownload(
       subtitles: options.subtitles,
       thumbnail: options.thumbnail,
       keepOriginalFormat: options.keepOriginalFormat ?? false,
+      formatId: options.formatId ?? undefined,
+      videoOnly: options.videoOnly ?? undefined,
       proxy: options.proxy ?? undefined,
       playlistItems: options.playlistItems ?? undefined,
       rateLimitKiB: options.rateLimitKiB ?? undefined,
