@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Download,
   Search,
+  X,
 } from "lucide-vue-next";
 import {
   readClipboardText,
@@ -24,6 +25,10 @@ import {
   type DownloadTask,
 } from "../composables/useDownloads";
 import { useDownloadSettings } from "../composables/useDownloadSettings";
+
+const emit = defineEmits<{
+  close: [];
+}>();
 
 const { start: startTask } = useDownloads();
 const { settings: downloadSettings } = useDownloadSettings();
@@ -277,9 +282,11 @@ async function startSelected() {
         },
       );
     }
-    feedback.value = queued > 0
-      ? `已将 ${queued} 个视频加入下载队列`
-      : "所选条目缺少下载链接";
+    if (queued > 0) {
+      emit("close");
+    } else {
+      feedback.value = "所选条目缺少下载链接";
+    }
   } finally {
     submitting.value = false;
   }
@@ -287,7 +294,19 @@ async function startSelected() {
 </script>
 
 <template>
-  <div class="max-w-[960px] mx-auto flex flex-col gap-5">
+  <Teleport to="body">
+    <div class="download-dialog-backdrop" @click.self="emit('close')">
+      <section class="download-dialog" role="dialog" aria-modal="true" aria-labelledby="new-download-title">
+        <header class="download-dialog-header">
+          <div>
+            <h2 id="new-download-title" class="text-[16px] font-semibold text-foreground">新建下载</h2>
+            <p class="mt-1 text-caption text-muted-foreground">解析视频或播放列表后，选择要加入队列的内容</p>
+          </div>
+          <button type="button" class="dialog-close" aria-label="关闭新建下载" title="关闭" @click="emit('close')">
+            <X class="h-4 w-4" />
+          </button>
+        </header>
+        <div class="download-dialog-body">
     <!-- ============ Block 1: URL Input + Smart Detection ============ -->
     <section class="ydl-panel">
       <p class="text-[13px] text-muted-foreground mb-4 flex items-center gap-2">
@@ -425,16 +444,74 @@ async function startSelected() {
         </button>
       </div>
     </section>
-  </div>
+        </div>
+      </section>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
+.download-dialog-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 60%);
+  backdrop-filter: blur(2px);
+}
+
+.download-dialog {
+  display: flex;
+  width: min(860px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--ydl-border);
+  border-radius: 8px;
+  background: var(--ydl-popover);
+  box-shadow: var(--shadow-overlay);
+}
+
+.download-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ydl-border);
+}
+
+.download-dialog-body {
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.dialog-close {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--ydl-muted-foreground);
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.dialog-close:hover {
+  background: var(--ydl-muted);
+  color: var(--ydl-foreground);
+}
+
 /* ===== 组件样式（来自 ytdlp-gui 设计稿） ===== */
 .ydl-panel {
   background: var(--ydl-card);
   border: 1px solid var(--ydl-border);
   border-radius: 16px;
-  padding: 24px;
+  padding: 20px;
 }
 
 /* Inputs */

@@ -12,12 +12,6 @@ const routes = [
     meta: { title: "主页", navKey: "dashboard" },
   },
   {
-    path: "/new-download",
-    name: "new-download",
-    component: () => import("./views/NewDownloadView.vue"),
-    meta: { title: "新建下载", navKey: "new-download" },
-  },
-  {
     path: "/history",
     name: "history",
     component: () => import("./views/HistoryView.vue"),

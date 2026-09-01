@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, LayoutDashboard, PlusCircle, History, Settings } from "lucide-vue-next";
+import { Download, LayoutDashboard, History, Settings } from "lucide-vue-next";
 
 /** On macOS the Overlay traffic-light buttons float in the top-left 80×38px area.
  *  We reserve vertical space at the top of the sidebar so the logo is not covered. */
@@ -8,7 +8,6 @@ const isMac =
 
 const navItems = [
   { to: "/dashboard", key: "dashboard", label: "主页", icon: LayoutDashboard },
-  { to: "/new-download", key: "new-download", label: "新建下载", icon: PlusCircle },
   { to: "/history", key: "history", label: "历史记录", icon: History },
   { to: "/settings", key: "settings", label: "设置", icon: Settings },
 ];

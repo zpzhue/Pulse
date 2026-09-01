@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import NewDownloadDialog from "./NewDownloadView.vue";
 import {
   Download,
   CircleCheck,
@@ -12,6 +13,8 @@ import {
   Plus,
   Inbox,
   AlertTriangle,
+  ExternalLink,
+  LoaderCircle,
 } from "lucide-vue-next";
 import {
   useDownloads,
@@ -29,6 +32,7 @@ const { settings: downloadSettings } = useDownloadSettings();
 /* Missing-ffmpeg banner: auto-detect once per mount, skip when the user
    configured an explicit ffmpeg path (it wins over detection). */
 const ffmpegMissing = ref(false);
+const showNewDownload = ref(false);
 onMounted(async () => {
   if (downloadSettings.ffmpegPath.trim()) return;
   try {
@@ -38,15 +42,17 @@ onMounted(async () => {
   }
 });
 
-const speedMB = computed(() => (totalSpeed.value / 1048576).toFixed(1));
-const diskGB = computed(() => (diskUsage.value / 1073741824).toFixed(1));
+const runningTasks = computed(() => active.value.filter((task) => task.status === "downloading" || task.status === "cancelling"));
+const queuedTasks = computed(() => active.value.filter((task) => task.status === "pending"));
+const hasTasks = computed(() => active.value.length > 0);
+const speedText = computed(() => formatSpeed(totalSpeed.value));
 
 const stats = computed(() => [
-  { id: "active", icon: Download, accent: true, label: "正在下载", value: String(activeCount.value), unit: "" },
-  { id: "queued", icon: Clock, accent: false, label: "等待中", value: String(queuedCount.value), unit: "" },
-  { id: "completed", icon: CircleCheck, accent: false, label: "已完成", value: String(completedCount.value), unit: "" },
-  { id: "speed", icon: Gauge, accent: false, label: "下载速度", value: speedMB.value, unit: "MB/s" },
-  { id: "disk", icon: HardDrive, accent: false, label: "磁盘占用", value: diskGB.value, unit: "GB" },
+  { id: "active", icon: Download, accent: true, label: "正在下载", value: String(activeCount.value), unit: "个任务" },
+  { id: "queued", icon: Clock, accent: false, label: "等待中", value: String(queuedCount.value), unit: "个任务" },
+  { id: "completed", icon: CircleCheck, accent: false, label: "历史记录", value: String(completedCount.value), unit: "条" },
+  { id: "speed", icon: Gauge, accent: false, label: "当前总速度", value: speedText.value, unit: "" },
+  { id: "disk", icon: HardDrive, accent: false, label: "历史下载累计", value: formatBytes(diskUsage.value), unit: "" },
 ]);
 </script>
 
@@ -58,13 +64,14 @@ const stats = computed(() => [
         <h2 class="text-h2 text-foreground" style="text-wrap: balance">下载概览</h2>
         <p class="text-body-sm text-muted-foreground mt-1">查看下载进度与管理任务</p>
       </div>
-      <RouterLink
-        to="/new-download"
+      <button
+        type="button"
         class="shrink-0 inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 font-medium text-[13px] transition-opacity hover:opacity-90"
+        @click="showNewDownload = true"
       >
         <Plus class="w-4 h-4" />
         <span>新建下载</span>
-      </RouterLink>
+      </button>
     </div>
 
     <!-- ffmpeg missing banner -->
@@ -101,76 +108,165 @@ const stats = computed(() => [
       </div>
     </div>
 
-    <!-- Download List: active downloads from the shared store -->
-    <div v-if="active.length === 0" class="bg-card border border-border rounded-lg py-16 text-center">
-      <Inbox class="w-8 h-8 mx-auto mb-3 text-muted-foreground opacity-60" />
-      <p class="text-[13px] text-muted-foreground">当前没有进行中的下载任务</p>
-      <RouterLink to="/new-download" class="inline-block mt-3 text-[13px] text-primary hover:underline underline-offset-4">
-        去新建下载 →
-      </RouterLink>
-    </div>
+    <section class="overflow-hidden rounded-lg border border-border bg-card">
+      <header class="flex items-center justify-between gap-4 border-b border-border px-5 py-4">
+        <div>
+          <h3 class="text-[15px] font-semibold text-foreground">下载队列</h3>
+          <p class="mt-0.5 text-caption text-muted-foreground">下载过程与等待任务会在这里实时更新</p>
+        </div>
+        <div v-if="hasTasks" class="flex items-center gap-2 text-caption text-muted-foreground">
+          <span class="h-2 w-2 rounded-full bg-primary animate-pulse"></span>
+          实时更新中
+        </div>
+      </header>
 
-    <div v-else class="flex flex-col gap-4">
-      <div
-        v-for="d in active"
-        :key="d.id"
-        class="bg-card border border-border rounded-lg p-4"
-      >
-        <div class="flex items-start gap-4">
-          <!-- Thumbnail -->
-          <div class="w-20 h-12 rounded bg-muted flex items-center justify-center shrink-0">
-            <Music v-if="d.kind === 'audio'" class="w-5 h-5 text-muted-foreground" />
-            <Video v-else class="w-5 h-5 text-muted-foreground" />
+      <div v-if="!hasTasks" class="py-16 text-center">
+        <Inbox class="mx-auto mb-3 h-8 w-8 text-muted-foreground opacity-60" />
+        <p class="text-[13px] text-muted-foreground">当前没有下载任务</p>
+        <button type="button" class="mt-3 inline-flex items-center gap-1 text-[13px] text-primary hover:underline underline-offset-4" @click="showNewDownload = true">
+          新建下载 <ExternalLink class="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div v-else>
+        <div v-if="runningTasks.length > 0" class="queue-section">
+          <div class="queue-label">
+            <LoaderCircle class="h-3.5 w-3.5 animate-spin text-primary" />
+            <span>正在下载</span>
+            <span class="font-mono text-muted-foreground">{{ runningTasks.length }}</span>
           </div>
-
-          <!-- Content -->
-          <div class="flex-1 min-w-0">
-            <h3 class="text-[14px] font-semibold text-foreground truncate">{{ d.title }}</h3>
-            <p class="font-mono text-[12px] text-muted-foreground truncate mt-0.5">{{ d.url }}</p>
-
-            <!-- Progress -->
-            <div class="mt-3">
-              <div class="flex items-center justify-between mb-1.5">
-                <span class="font-mono text-[12px] text-muted-foreground">
-                  {{ formatBytes(d.downloadedBytes) }} / {{ d.totalBytes != null ? formatBytes(d.totalBytes) : "未知" }}
-                  <template v-if="(d.playlistTotal ?? 0) > 1 && (d.playlistIndex ?? 0) >= 1"> · 第 {{ d.playlistIndex }}/{{ d.playlistTotal }} 个</template>
-                </span>
-                <span class="font-mono text-[12px] text-primary font-medium tabular-nums">{{ normalizedPercent(d) }}%</span>
+          <article v-for="d in runningTasks" :key="d.id" class="queue-row">
+            <div class="queue-icon">
+              <Music v-if="d.kind === 'audio'" class="h-4 w-4" />
+              <Video v-else class="h-4 w-4" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-4">
+                <h4 class="truncate text-[14px] font-medium text-foreground" :title="d.title">{{ d.title }}</h4>
+                <span class="shrink-0 font-mono text-[12px] font-medium tabular-nums text-primary">{{ normalizedPercent(d) }}%</span>
               </div>
-              <div class="h-2 rounded-full bg-muted overflow-hidden">
-                <div
-                  class="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-                  :style="{ width: (d.status === 'pending' ? 0 : normalizedPercent(d)) + '%' }"
-                ></div>
+              <p class="mt-0.5 truncate font-mono text-[11px] text-muted-foreground" :title="d.url">{{ d.url }}</p>
+              <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+                <div class="h-full rounded-full bg-primary transition-[width] duration-300 ease-out" :style="{ width: normalizedPercent(d) + '%' }"></div>
+              </div>
+              <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-muted-foreground">
+                <span class="font-mono tabular-nums">{{ formatBytes(d.downloadedBytes) }} / {{ d.totalBytes != null ? formatBytes(d.totalBytes) : '大小未知' }}</span>
+                <span class="inline-flex items-center gap-1"><Gauge class="h-3 w-3" /><span class="font-mono">{{ formatSpeed(d.speed) }}</span></span>
+                <span class="inline-flex items-center gap-1"><Clock class="h-3 w-3" /><span class="font-mono">预计 {{ formatEta(d.eta) }}</span></span>
+                <span v-if="(d.playlistTotal ?? 0) > 1 && (d.playlistIndex ?? 0) >= 1" class="font-mono">播放列表 {{ d.playlistIndex }}/{{ d.playlistTotal }}</span>
               </div>
             </div>
-
-            <!-- Speed + ETA -->
-            <div class="flex items-center gap-4 mt-2">
-              <span class="text-[12px] text-muted-foreground flex items-center gap-1">
-                <Gauge class="w-3 h-3" />
-                <span class="font-mono">{{ d.status === 'pending' ? '等待中…' : formatSpeed(d.speed) }}</span>
-              </span>
-              <span class="text-[12px] text-muted-foreground flex items-center gap-1">
-                <Clock class="w-3 h-3" />
-                <span class="font-mono">ETA {{ formatEta(d.eta) }}</span>
-              </span>
-            </div>
-          </div>
-
-          <!-- Controls -->
-          <div class="flex items-center gap-1 shrink-0">
             <button
-              class="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-              :aria-label="d.status === 'cancelling' ? '正在取消' : '取消'"
+              type="button"
+              class="queue-cancel"
+              :aria-label="d.status === 'cancelling' ? '正在取消' : '取消下载'"
+              :title="d.status === 'cancelling' ? '正在取消' : '取消下载'"
               :disabled="d.status === 'cancelling'"
               @click="cancel(d.id)"
             >
-              <X class="w-4 h-4" />
+              <LoaderCircle v-if="d.status === 'cancelling'" class="h-4 w-4 animate-spin" />
+              <X v-else class="h-4 w-4" />
             </button>
+          </article>
+        </div>
+
+        <div v-if="queuedTasks.length > 0" class="queue-section" :class="{ 'border-t border-border': runningTasks.length > 0 }">
+          <div class="queue-label">
+            <Clock class="h-3.5 w-3.5 text-muted-foreground" />
+            <span>等待中</span>
+            <span class="font-mono text-muted-foreground">{{ queuedTasks.length }}</span>
           </div>
+          <article v-for="(d, index) in queuedTasks" :key="d.id" class="queue-row is-queued">
+            <div class="queue-index">{{ String(index + 1).padStart(2, '0') }}</div>
+            <div class="min-w-0 flex-1">
+              <h4 class="truncate text-[14px] font-medium text-foreground" :title="d.title">{{ d.title }}</h4>
+              <p class="mt-0.5 truncate font-mono text-[11px] text-muted-foreground" :title="d.url">{{ d.url }}</p>
+              <p class="mt-2 text-caption text-muted-foreground">等待可用下载槽位</p>
+            </div>
+            <button type="button" class="queue-cancel" aria-label="取消等待任务" title="取消等待任务" @click="cancel(d.id)">
+              <X class="h-4 w-4" />
+            </button>
+          </article>
         </div>
       </div>
-    </div>
+    </section>
+
+    <NewDownloadDialog v-if="showNewDownload" @close="showNewDownload = false" />
   </div>
 </template>
+
+<style scoped>
+.queue-section {
+  padding: 12px 0;
+}
+
+.queue-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px 8px;
+  color: var(--ydl-muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.queue-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-height: 92px;
+  padding: 14px 20px;
+  transition: background-color 150ms ease;
+}
+
+.queue-row:hover {
+  background: color-mix(in srgb, var(--ydl-primary) 4%, transparent);
+}
+
+.queue-row.is-queued {
+  min-height: 74px;
+  align-items: center;
+}
+
+.queue-icon,
+.queue-index {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ydl-border);
+  border-radius: 6px;
+  background: var(--ydl-muted);
+  color: var(--ydl-primary);
+}
+
+.queue-index {
+  color: var(--ydl-muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.queue-cancel {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--ydl-muted-foreground);
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.queue-cancel:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--state-error) 10%, transparent);
+  color: var(--state-error);
+}
+
+.queue-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+</style>

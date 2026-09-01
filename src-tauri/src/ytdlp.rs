@@ -144,8 +144,9 @@ fn parse_resolve_json(stdout: &[u8]) -> Result<ResolveResult, String> {
     if kind != "playlist" {
         if let Some(list) = meta.get("formats").and_then(|v| v.as_array()) {
             for f in list {
-                let vcodec = f.get("vcodec").and_then(|v| v.as_str()).unwrap_or("none");
-                if vcodec == "none" || vcodec.is_empty() {
+                // Some HLS extractors (for example AcFun) omit codec fields
+                // entirely. Only an explicit `vcodec: "none"` means audio-only.
+                if matches!(f.get("vcodec").and_then(|v| v.as_str()), Some("none") | Some("")) {
                     continue; // audio-only stream: not a selectable video row
                 }
                 let ext = f.get("ext").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -1184,6 +1185,25 @@ mod tests {
         assert_eq!(parsed.formats[1].filesize, Some(94_371_840));
         assert_eq!(parsed.formats[0].ext, "mp4");
         assert_eq!(parsed.formats[0].width, Some(1920));
+
+        // AcFun HLS formats omit codec fields, but remain selectable video
+        // streams and each variant contains both audio and video.
+        let acfun = serde_json::json!({
+            "_type": "video",
+            "id": "ac48805366",
+            "title": "AcFun HLS",
+            "formats": [
+                { "format_id": "0", "ext": "mp4", "width": 360, "height": 640, "filesize_approx": 4_738_668.0 },
+                { "format_id": "3", "ext": "mp4", "width": 1080, "height": 1920, "filesize_approx": 25_241_366.0 }
+            ]
+        });
+        let parsed = parse_resolve_json(&serde_json::to_vec(&acfun).unwrap()).unwrap();
+        assert_eq!(parsed.formats.len(), 2);
+        assert_eq!(parsed.formats[0].format_id, "3");
+        assert_eq!(parsed.formats[0].height, Some(1920));
+        assert!(!parsed.formats[0].video_only);
+        assert_eq!(parsed.formats[1].format_id, "0");
+        assert!(!parsed.formats[1].video_only);
 
         let playlist = serde_json::json!({
             "_type": "playlist",
