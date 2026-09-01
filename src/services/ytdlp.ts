@@ -55,7 +55,6 @@ export interface DownloadOptions {
   filenameTemplate: string;
   subtitles: boolean;
   thumbnail: boolean;
-  keepOriginalFormat?: boolean;
   /** Row-selected yt-dlp format id; absent → yt-dlp default selection. */
   formatId?: string;
   /** Whether the picked format lacks an audio track (+bestaudio needed). */
@@ -236,7 +235,6 @@ export async function startDownload(
       filenameTemplate: options.filenameTemplate,
       subtitles: options.subtitles,
       thumbnail: options.thumbnail,
-      keepOriginalFormat: options.keepOriginalFormat ?? false,
       formatId: options.formatId ?? undefined,
       videoOnly: options.videoOnly ?? undefined,
       proxy: options.proxy ?? undefined,

@@ -47,7 +47,6 @@ export interface StartSpec {
   filenameTemplate: string;
   subtitles: boolean;
   thumbnail: boolean;
-  keepOriginalFormat?: boolean;
   /** Row-selected yt-dlp format id; absent → yt-dlp default selection. */
   formatId?: string;
   /** Whether the picked format lacks an audio track (+bestaudio needed). */
@@ -226,7 +225,6 @@ async function runTask(task: DownloadTask, spec: StartSpec) {
     filenameTemplate: spec.filenameTemplate,
     subtitles: spec.subtitles,
     thumbnail: spec.thumbnail,
-    keepOriginalFormat: spec.keepOriginalFormat,
     formatId: spec.formatId,
     videoOnly: spec.videoOnly,
     proxy: spec.proxy,

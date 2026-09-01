@@ -209,7 +209,6 @@ pub struct DownloadOptions {
     pub filename_template: String,
     pub subtitles: bool,
     pub thumbnail: bool,
-    pub keep_original_format: bool,
     /// Row-selected yt-dlp format id (from the resolve metadata's format
     /// list); when absent yt-dlp applies its own default format selection.
     pub format_id: Option<String>,
@@ -998,7 +997,6 @@ mod tests {
             filename_template: "%(title)s.%(ext)s".into(),
             subtitles: false,
             thumbnail: false,
-            keep_original_format: false,
             format_id: None,
             video_only: None,
             proxy: Some("http://127.0.0.1:7890".into()),
@@ -1033,7 +1031,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_source_format_when_requested() {
+    fn leaves_format_selection_to_ytdlp_when_none_is_selected() {
         let options = DownloadOptions {
             task_id: "keep-original".into(),
             url: "https://example.test/video".into(),
@@ -1043,7 +1041,6 @@ mod tests {
             filename_template: "%(title)s.%(ext)s".into(),
             subtitles: false,
             thumbnail: false,
-            keep_original_format: true,
             format_id: None,
             video_only: None,
             proxy: None,
@@ -1076,7 +1073,6 @@ mod tests {
             filename_template: "%(title)s.%(ext)s".into(),
             subtitles: false,
             thumbnail: false,
-            keep_original_format: false,
             format_id: Some("137".into()),
             video_only: Some(true),
             proxy: None,
@@ -1106,7 +1102,6 @@ mod tests {
             filename_template: "%(title)s.%(ext)s".into(),
             subtitles: false,
             thumbnail: false,
-            keep_original_format: false,
             format_id: Some("18".into()),
             video_only: Some(false),
             proxy: None,
@@ -1136,7 +1131,6 @@ mod tests {
             filename_template: "%(title)s.%(ext)s".into(),
             subtitles: false,
             thumbnail: false,
-            keep_original_format: false,
             format_id: Some("best video]; rm -rf /".into()),
             video_only: Some(true),
             proxy: None,
@@ -1293,7 +1287,6 @@ mod tests {
             filename_template: "%(title)s.%(ext)s".into(),
             subtitles: false,
             thumbnail: false,
-            keep_original_format: false,
             format_id: None,
             video_only: None,
             proxy: None,

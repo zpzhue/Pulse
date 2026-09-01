@@ -106,12 +106,16 @@ function qualityLabel(height: number | null): string | null {
 /** Dropdown label: MP4 · 1080p · 1920×1080 · ~128 MB (missing parts → —). */
 function formatOptionLabel(f: VideoFormatOption): string {
   const parts = [
-    f.ext ? f.ext.toUpperCase() : "—",
     qualityLabel(f.height) ?? "—",
     f.width && f.height ? `${f.width}×${f.height}` : "—",
+    f.ext ? f.ext.toUpperCase() : "—",
     f.filesize ? `~${formatBytes(f.filesize)}` : "—",
   ];
   return parts.every((part) => part === "—") ? f.formatId : parts.join(" · ");
+}
+
+function qualityText(row: Row): string {
+  return qualityLabel(selectedFormat(row)?.height ?? null) ?? "默认";
 }
 
 function selectedFormat(row: Row): VideoFormatOption | null {
@@ -409,13 +413,14 @@ async function startSelected() {
             <span class="font-mono text-[12px] text-muted-foreground truncate" :title="row.id">{{ row.id }}</span>
             <span class="text-[14px] text-foreground truncate" :title="row.title">{{ row.title }}</span>
             <span class="font-mono text-[13px] text-muted-foreground">{{ row.duration }}</span>
-            <div v-if="row.formats.length" class="select-wrap">
-              <select v-model="row.selectedFormatId" class="ydl-select-sm" :aria-label="`清晰度（${row.title}）`">
+            <div v-if="row.formats.length" class="quality-select">
+              <select v-model="row.selectedFormatId" :aria-label="`清晰度（${row.title}）`">
                 <option v-for="f in row.formats" :key="f.formatId" :value="f.formatId">
                   {{ formatOptionLabel(f) }}
                 </option>
               </select>
-              <span class="chev"><ChevronDown class="w-3.5 h-3.5" /></span>
+              <span class="quality-value">{{ qualityText(row) }}</span>
+              <ChevronDown class="quality-chevron" />
             </div>
             <span v-else class="text-[12px] text-muted-foreground">默认画质</span>
             <span class="font-mono text-[12px] text-muted-foreground">{{ resolutionText(row) }}</span>
@@ -537,39 +542,56 @@ async function startSelected() {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ydl-ring) 22%, transparent);
 }
 
-/* Inline select wrap (row quality / batch bar) */
-.select-wrap {
+/* Quality picker: concise in the table, detailed in the native option list. */
+.quality-select {
   position: relative;
   display: inline-flex;
-  max-width: 100%;
-}
-.select-wrap .ydl-select-sm {
-  appearance: none;
-  -webkit-appearance: none;
-  background: var(--ydl-muted);
+  width: 116px;
+  height: 34px;
+  align-items: center;
   border: 1px solid var(--ydl-border);
+  border-radius: 6px;
+  background: var(--ydl-surface-2);
   color: var(--ydl-foreground);
-  font-size: 13px;
-  padding: 7px 30px 7px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-family: var(--font-sans);
-  height: 36px;
-  width: 100%;
-  max-width: 170px;
-  transition: border-color 140ms;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
 }
-.select-wrap .ydl-select-sm:hover {
+
+.quality-select:hover {
   border-color: var(--ydl-muted-foreground);
+  background: var(--ydl-muted);
 }
-.select-wrap .chev {
+
+.quality-select:focus-within {
+  border-color: var(--ydl-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ydl-primary) 16%, transparent);
+}
+
+.quality-select select {
   position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.quality-value {
+  overflow: hidden;
+  padding: 0 28px 0 11px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quality-chevron {
+  position: absolute;
+  right: 9px;
+  width: 14px;
+  height: 14px;
   color: var(--ydl-muted-foreground);
-  display: inline-flex;
+  pointer-events: none;
 }
 
 /* Buttons */
@@ -672,7 +694,7 @@ async function startSelected() {
 .pl-head,
 .pl-row {
   display: grid;
-  grid-template-columns: 26px 88px minmax(0, 1fr) 50px 170px 84px 46px 62px 64px;
+  grid-template-columns: 26px 72px minmax(0, 1fr) 50px 116px 84px 46px 62px 64px;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
