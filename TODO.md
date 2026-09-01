@@ -9,7 +9,7 @@
 - [x] 限速：映射为 yt-dlp 的 `--limit-rate` 参数，界面与任务模型统一使用 KiB/s。
 - [x] 断点续传：映射为 `--continue` / `--no-continue`；默认保留 `.part` 文件以便恢复，已有完成文件由 yt-dlp 自动改名避免静默跳过。
 - [x] 临时文件策略：yt-dlp 没有通用的下载完成哈希校验参数；提供“清理未完成文件”选项，开启时使用 `--no-part`。
-- [~] Cookie 配置：已持久化 Cookie 文件绝对路径、映射为 yt-dlp `--cookies`，并在 Rust 端校验可访问普通文件；系统文件选择器待依赖环境恢复后补充。
+- [x] Cookie 配置：已持久化 Cookie 文件绝对路径、映射为 yt-dlp `--cookies`，并在 Rust 端校验可访问普通文件；系统文件选择器已接入（tauri-plugin-dialog）。（2026-08-31 补完，同时 resolve 阶段也透传 proxy/cookie）
 - [x] yt-dlp 自动更新：手动检查并由用户确认后调用内置 `--update`；只接受绝对文件路径，失败不改变当前路径或版本配置。
 
 ## 下载控制

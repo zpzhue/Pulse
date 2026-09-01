@@ -24,23 +24,35 @@ import {
   FileDown,
 } from "lucide-vue-next";
 import {
+  chooseDirectory,
+  readClipboardText,
   resolveUrl,
   type ResolveResult,
 } from "../services/ytdlp";
-import { useDownloads, type DownloadTask } from "../composables/useDownloads";
+import {
+  baseSpecFromSettings,
+  useDownloads,
+  type DownloadTask,
+} from "../composables/useDownloads";
 import { useDownloadSettings } from "../composables/useDownloadSettings";
 
 const { start: startTask } = useDownloads();
 const { settings: downloadSettings } = useDownloadSettings();
 
 /* ---- 交互状态 ---- */
-const url = ref("https://www.youtube.com/playlist?list=PLrFn9SKbK2RvTnQ8mZkLp3Hx...");
+const url = ref("");
 const mode = ref<"single" | "playlist">("playlist");
+
+/** Parsed metadata shown after resolving, so the user sees what yt-dlp
+    actually resolved (single video or playlist). */
+const resolvedInfo = ref<{ title: string; uploader: string; count: number } | null>(null);
 
 /* URL 变化时粗略识别类型 */
 function detectMode() {
   mode.value =
     url.value.includes("playlist") || url.value.includes("list=") ? "playlist" : "single";
+  // A new URL invalidates the previous resolution result.
+  resolvedInfo.value = null;
 }
 
 function singleFormatLabel(format: string): string {
@@ -132,6 +144,7 @@ watch(() => batchTask.value?.status, (status) => {
 
 /* ---- 解析 / 下载状态 ---- */
 const resolving = ref(false);
+const submitting = ref(false);
 const feedback = ref("");
 
 function formatDuration(sec: number | null): string {
@@ -154,6 +167,14 @@ function seedItems(entries: { id: string; title: string; duration: number | null
   }));
 }
 
+/** Proxy/cookie options shared by resolve calls (downloads already apply them). */
+function resolveOptions(): { proxy?: string; cookiePath?: string } {
+  return {
+    proxy: downloadSettings.proxyEnabled ? downloadSettings.proxyUrl : undefined,
+    cookiePath: downloadSettings.cookieEnabled ? downloadSettings.cookiePath : undefined,
+  };
+}
+
 async function parseUrl() {
   const target = url.value.trim();
   if (!target) {
@@ -162,13 +183,15 @@ async function parseUrl() {
   }
   resolving.value = true;
   feedback.value = "";
+  resolvedInfo.value = null;
   try {
-    const res: ResolveResult = await resolveUrl(target);
+    const res: ResolveResult = await resolveUrl(target, resolveOptions());
     mode.value = res.kind === "playlist" ? "playlist" : "single";
+    resolvedInfo.value = { title: res.title, uploader: res.uploader, count: res.count };
     playlistTitle.value = res.title;
     playlistUploader.value = res.uploader;
     playlistCount.value = res.count;
-    playlist.value = seedItems(res.entries);
+    playlist.value = seedItems(res.entries ?? []);
     if (res.kind !== "playlist") playlist.value = [];
   } catch (e) {
     feedback.value = `解析失败：${String(e)}`;
@@ -186,32 +209,53 @@ function mapFormat(label: string): string {
   return "mp4";
 }
 
+/** Paste from the system clipboard into the URL field. */
+async function pasteUrl() {
+  const text = await readClipboardText();
+  if (!text) {
+    feedback.value = "剪贴板为空或不可读";
+    return;
+  }
+  url.value = text.trim();
+  detectMode();
+  feedback.value = "";
+}
+
+/** Pick a download directory with the native folder dialog. */
+async function browsePath(target: "single" | "batch") {
+  const current = target === "single" ? singlePath.value : commonPath.value;
+  const dir = await chooseDirectory(current);
+  if (!dir) return;
+  if (target === "single") singlePath.value = dir;
+  else commonPath.value = dir;
+}
+
 async function startSingle() {
   const target = url.value.trim();
   if (!target) {
     feedback.value = "请先粘贴下载链接";
     return;
   }
-  feedback.value = "已加入下载队列";
-  const title = await tryResolveTitle(target);
-  await startTask({
-    url: target,
-    title,
-    kind: singleFormat.value.includes("MP3") ? "audio" : "video",
-    format: mapFormat(singleFormat.value),
-    downloadPath: singlePath.value,
-    quality: singleQuality.value,
-    filenameTemplate: downloadSettings.filenameTemplate,
-    subtitles: singleSubs.value,
-    thumbnail: singleThumb.value,
-    keepOriginalFormat: singleKeepFormat.value && !singleFormat.value.includes("MP3"),
-    proxy: downloadSettings.proxyEnabled ? downloadSettings.proxyUrl : undefined,
-    rateLimitKiB: downloadSettings.rateLimitEnabled ? downloadSettings.rateLimitKiB : undefined,
-    resume: downloadSettings.resumeEnabled,
-    removePartialFiles: downloadSettings.removePartialFiles,
-    retries: downloadSettings.retryCount,
-    cookiePath: downloadSettings.cookieEnabled ? downloadSettings.cookiePath : undefined,
-  });
+  if (submitting.value) return;
+  submitting.value = true;
+  try {
+    await startTask({
+      ...baseSpecFromSettings(downloadSettings),
+      url: target,
+      kind: singleFormat.value.includes("MP3") ? "audio" : "video",
+      format: mapFormat(singleFormat.value),
+      downloadPath: singlePath.value,
+      quality: singleQuality.value,
+      filenameTemplate: downloadSettings.filenameTemplate,
+      subtitles: singleSubs.value,
+      thumbnail: singleThumb.value,
+      keepOriginalFormat: singleKeepFormat.value && !singleFormat.value.includes("MP3"),
+    });
+    // The queue resolves the title; the dashboard reflects real state.
+    feedback.value = "已加入下载队列";
+  } finally {
+    submitting.value = false;
+  }
 }
 
 async function startBatch() {
@@ -220,37 +264,28 @@ async function startBatch() {
     feedback.value = "请先勾选要下载的视频";
     return;
   }
-  feedback.value = `已将 ${selected.length} 个视频加入下载队列`;
-  batchTask.value = await startTask({
-    url: url.value.trim(),
-    title: playlistTitle.value || "播放列表",
-    kind: batchFormat.value.includes("MP3") ? "audio" : "video",
-    format: mapFormat(batchFormat.value),
-    downloadPath: commonPath.value,
-    quality: batchQuality.value,
-    filenameTemplate: downloadSettings.filenameTemplate,
-    subtitles: commonSubs.value,
-    thumbnail: commonThumb.value,
-    proxy: downloadSettings.proxyEnabled ? downloadSettings.proxyUrl : undefined,
-    playlistItems: selected.map((item) => item.index),
-    rateLimitKiB: downloadSettings.rateLimitEnabled ? downloadSettings.rateLimitKiB : undefined,
-    resume: downloadSettings.resumeEnabled,
-    removePartialFiles: downloadSettings.removePartialFiles,
-    retries: downloadSettings.retryCount,
-    cookiePath: downloadSettings.cookieEnabled ? downloadSettings.cookiePath : undefined,
-  });
-  playlist.value.forEach((item) => {
-    item.status = item.selected ? "downloading" : "unselected";
-  });
-}
-
-/** Best-effort title resolution; never blocks the button on a failure. */
-async function tryResolveTitle(target: string): Promise<string | undefined> {
+  if (submitting.value) return;
+  submitting.value = true;
   try {
-    const r = await resolveUrl(target);
-    return r.title;
-  } catch {
-    return undefined;
+    batchTask.value = await startTask({
+      ...baseSpecFromSettings(downloadSettings),
+      url: url.value.trim(),
+      title: playlistTitle.value || "播放列表",
+      kind: batchFormat.value.includes("MP3") ? "audio" : "video",
+      format: mapFormat(batchFormat.value),
+      downloadPath: commonPath.value,
+      quality: batchQuality.value,
+      filenameTemplate: downloadSettings.filenameTemplate,
+      subtitles: commonSubs.value,
+      thumbnail: commonThumb.value,
+      playlistItems: selected.map((item) => item.index),
+    });
+    feedback.value = `已将 ${selected.length} 个视频加入下载队列`;
+    playlist.value.forEach((item) => {
+      item.status = item.selected ? "downloading" : "unselected";
+    });
+  } finally {
+    submitting.value = false;
   }
 }
 </script>
@@ -275,29 +310,35 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
             class="ydl-input pl-10 pr-3 h-12 font-mono"
           />
         </div>
-        <button type="button" class="ydl-btn-ghost px-4 h-12 rounded-lg" aria-label="粘贴链接">
+        <button type="button" class="ydl-btn-ghost px-4 h-12 rounded-lg" aria-label="粘贴链接" @click="pasteUrl">
           <ClipboardPaste class="w-4 h-4" />
           <span>粘贴</span>
         </button>
-      </div>
-
-      <!-- Smart detection result bar -->
-      <div v-if="mode === 'playlist'" class="detect-bar mt-3">
-        <ListVideo class="w-[18px] h-[18px] text-primary shrink-0" />
-        <span class="text-[13px] font-medium text-foreground">检测到播放列表</span>
-        <span class="ydl-tag ydl-tag-cyan">{{ playlistCount }} 个视频</span>
-        <span class="text-[12px] text-muted-foreground font-mono">{{ playlistSize }}</span>
-        <div class="flex-1"></div>
         <button
           type="button"
-          class="ydl-btn-outline ydl-btn-sm"
-          :disabled="resolving"
+          class="ydl-btn-ghost px-4 h-12 rounded-lg"
+          aria-label="解析链接"
+          :disabled="resolving || !url.trim()"
           @click="parseUrl"
         >
           <Loader2 v-if="resolving" class="w-4 h-4 animate-spin" />
           <Search v-else class="w-4 h-4" />
           <span>{{ resolving ? "解析中" : "解析" }}</span>
         </button>
+      </div>
+
+      <!-- Resolution result bar: shows what yt-dlp resolved -->
+      <div v-if="resolvedInfo" class="detect-bar mt-3">
+        <ListVideo v-if="mode === 'playlist'" class="w-[18px] h-[18px] text-primary shrink-0" />
+        <Video v-else class="w-[18px] h-[18px] text-primary shrink-0" />
+        <span class="text-[13px] font-medium text-foreground">
+          {{ mode === "playlist" ? "已解析播放列表" : "已解析视频" }}
+        </span>
+        <span class="ydl-tag" :class="mode === 'playlist' ? 'ydl-tag-cyan' : 'ydl-tag-green'">
+          {{ mode === "playlist" ? `${resolvedInfo.count} 个视频` : "1 个视频" }}
+        </span>
+        <span class="text-[12px] text-muted-foreground font-mono max-w-[45%] truncate">{{ resolvedInfo.title }}</span>
+        <span v-if="resolvedInfo.uploader" class="text-[12px] text-muted-foreground">{{ resolvedInfo.uploader }}</span>
       </div>
 
       <!-- Feedback / status message -->
@@ -366,7 +407,7 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
             <Folder class="w-[18px] h-[18px] absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
             <input v-model="singlePath" type="text" class="ydl-input pl-10 pr-3 h-11 font-mono" @input="singleDirty.path = true" />
           </div>
-          <button type="button" class="ydl-btn-ghost px-4 h-11 rounded-lg" aria-label="浏览文件夹">
+          <button type="button" class="ydl-btn-ghost px-4 h-11 rounded-lg" aria-label="浏览文件夹" @click="browsePath('single')">
             <FolderOpen class="w-4 h-4" />
             <span>浏览</span>
           </button>
@@ -427,13 +468,19 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
       <section class="flex items-stretch gap-3">
         <button
           type="button"
-          class="ydl-btn-primary flex-1 h-12 rounded-lg"
+          class="ydl-btn-primary flex-1 h-12 rounded-lg disabled:opacity-50"
+          :disabled="submitting"
           @click="startSingle"
         >
           <Download class="w-[18px] h-[18px]" />
           <span>开始下载</span>
         </button>
-        <button type="button" class="ydl-btn-outline h-12 px-5 rounded-lg">
+        <button
+          type="button"
+          class="ydl-btn-outline h-12 px-5 rounded-lg"
+          disabled
+          title="开发中，敬请期待"
+        >
           <Bookmark class="w-[18px] h-[18px]" />
           <span>保存为预设</span>
         </button>
@@ -522,13 +569,19 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
           </select>
           <span class="chev"><ChevronDown class="w-3.5 h-3.5" /></span>
         </div>
-        <button type="button" class="ydl-btn-outline ydl-btn-sm">
+        <button
+          type="button"
+          class="ydl-btn-outline ydl-btn-sm"
+          disabled
+          title="开发中，敬请期待"
+        >
           <FileDown class="w-4 h-4" />
           <span>导出列表</span>
         </button>
         <button
           type="button"
           class="ydl-btn-primary ydl-btn-sm"
+          :disabled="submitting"
           @click="startBatch"
         >
           <Download class="w-4 h-4" />
@@ -553,7 +606,7 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
             <Folder class="w-[18px] h-[18px] absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
             <input v-model="commonPath" type="text" class="ydl-input pl-10 pr-3 h-11 font-mono" @input="batchDirty.path = true" />
           </div>
-          <button type="button" class="ydl-btn-ghost px-4 h-11 rounded-lg" aria-label="浏览文件夹">
+          <button type="button" class="ydl-btn-ghost px-4 h-11 rounded-lg" aria-label="浏览文件夹" @click="browsePath('batch')">
             <FolderOpen class="w-4 h-4" />
             <span>浏览</span>
           </button>
@@ -1010,6 +1063,10 @@ async function tryResolveTitle(target: string): Promise<string | undefined> {
 .ydl-tag-cyan {
   background: color-mix(in srgb, var(--ydl-primary) 18%, transparent);
   color: var(--ydl-primary);
+}
+.ydl-tag-green {
+  background: color-mix(in srgb, #22c55e 16%, transparent);
+  color: #16a34a;
 }
 
 /* Meta pill */

@@ -25,6 +25,7 @@ vi.mock("../composables/useDownloads", async () => {
 import DashboardView from "./DashboardView.vue";
 import { createDownloadStore, type StartSpec } from "../composables/useDownloads";
 import { reactive } from "vue";
+import { baseDownloadSettings } from "../composables/downloadSettings.fixture";
 
 const spec: StartSpec = {
   url: "https://example.test/video",
@@ -39,7 +40,7 @@ const spec: StartSpec = {
 };
 
 function createStore() {
-  const settings = reactive({ concurrent: 1 });
+  const settings = reactive(baseDownloadSettings());
   return createDownloadStore({
     settings,
     loadHistory: () => [],

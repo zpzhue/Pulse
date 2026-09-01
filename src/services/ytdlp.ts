@@ -1,4 +1,7 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
+import { readText as clipboardReadText } from "@tauri-apps/plugin-clipboard-manager";
+import { openPath } from "@tauri-apps/plugin-opener";
 
 /** Resolved URL metadata returned by the Rust `resolve_url` command. */
 export interface ResolveResult {
@@ -7,7 +10,12 @@ export interface ResolveResult {
   title: string;
   uploader: string;
   count: number;
-  entries: PlaylistEntry[];
+  /**
+   * Present for playlists. Rust omits the key entirely when the list is
+   * empty (serde skip_serializing_if on an empty Vec), so callers must
+   * treat this as optional and default to [].
+   */
+  entries?: PlaylistEntry[];
 }
 
 export interface PlaylistEntry {
@@ -34,11 +42,13 @@ export interface DownloadOptions {
   removePartialFiles?: boolean;
   retries?: number;
   cookiePath?: string;
+  /** User-configured ffmpeg binary path or directory; overrides detection. */
+  ffmpegPath?: string;
 }
 
 /** Streamed progress event pushed from Rust during a download. */
 export interface ProgressEvent {
-  type: "started" | "progress" | "finished" | "cancelled" | "error";
+  type: "started" | "progress" | "item" | "finished" | "cancelled" | "error";
   taskId?: string;
   url?: string;
   percent?: number;
@@ -46,10 +56,46 @@ export interface ProgressEvent {
   totalBytes?: number;
   speed?: number;
   eta?: number;
+  /** Playlist progress: 1-based index of the item now downloading. */
+  playlistIndex?: number;
+  playlistTotal?: number;
   message?: string;
 }
 
 const BINARY_KEY = "pulse.ytdlp.binary";
+
+/** Ask the user to pick a directory; resolves null when cancelled. */
+export async function chooseDirectory(startPath?: string): Promise<string | null> {
+  const selection = await dialogOpen({
+    directory: true,
+    multiple: false,
+    defaultPath: startPath || undefined,
+  });
+  return typeof selection === "string" ? selection : null;
+}
+
+/** Ask the user to pick a file; resolves null when cancelled. */
+export async function chooseFile(
+  filters?: { name: string; extensions: string[] }[],
+): Promise<string | null> {
+  const selection = await dialogOpen({ multiple: false, filters });
+  return typeof selection === "string" ? selection : null;
+}
+
+/** Open a folder in the system file manager (Finder on macOS). */
+export async function openFolder(path: string): Promise<void> {
+  await openPath(path);
+}
+
+/** Read text from the system clipboard; resolves null when unavailable. */
+export async function readClipboardText(): Promise<string | null> {
+  try {
+    const text = await clipboardReadText();
+    return text || null;
+  } catch {
+    return null;
+  }
+}
 
 /** Current yt-dlp binary path (mirrors the settings page, persisted). */
 export function getBinary(): string {
@@ -106,9 +152,29 @@ export function detectYtdlp(): Promise<{ path: string; version: string } | null>
   return invoke<{ path: string; version: string } | null>("detect_ytdlp");
 }
 
-/** Resolve a URL to metadata / playlist entries. */
-export function resolveUrl(url: string): Promise<ResolveResult> {
-  return invoke<ResolveResult>("resolve_url", { req: { url, binary: getBinary() } });
+/** Probe common locations / PATH for a working ffmpeg (+ ffprobe). */
+export function detectFfmpeg(): Promise<{ path: string; version: string } | null> {
+  return invoke<{ path: string; version: string } | null>("detect_ffmpeg");
+}
+
+/** Verify a user-configured ffmpeg location (binary or directory). */
+export function checkFfmpeg(path?: string): Promise<string> {
+  return invoke<string>("check_ffmpeg", { path: path?.trim() || null });
+}
+
+/** Resolve a URL to metadata / playlist entries (proxy/cookie mirror downloads). */
+export function resolveUrl(
+  url: string,
+  options?: { proxy?: string; cookiePath?: string },
+): Promise<ResolveResult> {
+  return invoke<ResolveResult>("resolve_url", {
+    req: {
+      url,
+      binary: getBinary(),
+      proxy: options?.proxy || undefined,
+      cookiePath: options?.cookiePath || undefined,
+    },
+  });
 }
 
 /** Check the configured yt-dlp binary is reachable and return its version. */
@@ -153,6 +219,7 @@ export async function startDownload(
       removePartialFiles: options.removePartialFiles ?? false,
       retries: options.retries ?? 3,
       cookiePath: options.cookiePath ?? undefined,
+      ffmpegLocation: options.ffmpegPath?.trim() || undefined,
       binary: getBinary(),
     },
     onEvent: channel,

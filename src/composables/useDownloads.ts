@@ -5,7 +5,7 @@ import {
   resolveUrl,
   type DownloadOptions,
 } from "../services/ytdlp";
-import { useDownloadSettings } from "./useDownloadSettings";
+import { useDownloadSettings, type DownloadSettings } from "./useDownloadSettings";
 
 export type TaskStatus = "pending" | "downloading" | "cancelling" | "completed" | "failed" | "cancelled";
 
@@ -22,6 +22,15 @@ export interface DownloadTask {
   totalBytes: number | null;
   speed: number | null; // bytes/sec
   eta: number | null; // seconds
+  /** Absolute directory the task downloads into (persisted for history). */
+  downloadPath?: string;
+  /** Subtitle / thumbnail choices, persisted so history restarts reproduce
+      the original task (absent on legacy records → treated as false). */
+  subtitles?: boolean;
+  thumbnail?: boolean;
+  /** Playlist progress: 1-based index of the item now downloading. */
+  playlistIndex?: number | null;
+  playlistTotal?: number | null;
   error?: string;
   createdAt: number;
   finishedAt?: number;
@@ -46,6 +55,23 @@ export interface StartSpec {
   removePartialFiles?: boolean;
   retries?: number;
   cookiePath?: string;
+  ffmpegPath?: string;
+}
+
+/**
+ * The settings-derived portion of every StartSpec (shared by single, batch
+ * and history-restart entry points so the mapping lives in one place).
+ */
+export function baseSpecFromSettings(settings: DownloadSettings) {
+  return {
+    proxy: settings.proxyEnabled ? settings.proxyUrl : undefined,
+    rateLimitKiB: settings.rateLimitEnabled ? settings.rateLimitKiB : undefined,
+    resume: settings.resumeEnabled,
+    removePartialFiles: settings.removePartialFiles,
+    retries: settings.retryCount,
+    cookiePath: settings.cookieEnabled ? settings.cookiePath : undefined,
+    ffmpegPath: settings.ffmpegPath || undefined,
+  };
 }
 
 const HISTORY_KEY = "pulse.history";
@@ -56,7 +82,9 @@ const HISTORY_LIMIT = 200;
 /* ------------------------------------------------------------------ */
 
 function genId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
 export function formatBytes(bytes: number | null | undefined): string {
@@ -100,9 +128,27 @@ function loadHistory(): DownloadTask[] {
 }
 
 interface DownloadStoreDependencies {
-  settings: { concurrent: number };
+  settings: DownloadSettings;
   loadHistory: () => DownloadTask[];
   persistHistory: (tasks: DownloadTask[]) => void;
+}
+
+/**
+ * Overall percent across playlist items (item N of M contributes
+ * (N-1 + percent/100) / M). Falls back to the raw percent.
+ */
+export function normalizedPercent(task: {
+  percent: number;
+  playlistIndex?: number | null;
+  playlistTotal?: number | null;
+}): number {
+  const total = task.playlistTotal ?? 0;
+  const index = task.playlistIndex ?? 0;
+  if (total > 1 && index >= 1) {
+    const within = Math.min(100, Math.max(0, task.percent)) / 100;
+    return Math.min(100, Math.round(((index - 1 + within) / total) * 100));
+  }
+  return task.percent;
 }
 
 export function createDownloadStore(dependencies: DownloadStoreDependencies) {
@@ -159,7 +205,7 @@ async function cancel(id: string): Promise<void> {
 async function runTask(task: DownloadTask, spec: StartSpec) {
   if (!spec.title) {
     try {
-      const meta = await resolveUrl(spec.url);
+      const meta = await resolveUrl(spec.url, { proxy: spec.proxy, cookiePath: spec.cookiePath });
       task.title = meta.title || spec.url;
     } catch {
       task.title = spec.url;
@@ -184,6 +230,7 @@ async function runTask(task: DownloadTask, spec: StartSpec) {
     removePartialFiles: spec.removePartialFiles,
     retries: spec.retries,
     cookiePath: spec.cookiePath,
+    ffmpegPath: spec.ffmpegPath,
   };
 
   try {
@@ -198,9 +245,24 @@ async function runTask(task: DownloadTask, spec: StartSpec) {
         if (ev.totalBytes != null) task.totalBytes = ev.totalBytes;
         if (ev.speed != null) task.speed = ev.speed;
         if (ev.eta != null) task.eta = ev.eta;
+      } else if (ev.type === "item") {
+        // yt-dlp moved on to the next playlist entry.
+        task.status = "downloading";
+        task.percent = 0;
+        task.downloadedBytes = 0;
+        task.totalBytes = null;
+        task.speed = null;
+        task.eta = null;
+        task.playlistIndex = ev.playlistIndex ?? null;
+        task.playlistTotal = ev.playlistTotal ?? null;
       } else if (ev.type === "finished") {
         task.status = "completed";
         task.percent = 100;
+        // Reconcile sizes: merged downloads rarely end with downloaded == total.
+        if (ev.totalBytes != null) task.totalBytes = ev.totalBytes;
+        if (ev.downloadedBytes != null && ev.downloadedBytes > task.downloadedBytes) {
+          task.downloadedBytes = ev.downloadedBytes;
+        }
         task.finishedAt = Date.now();
         moveToHistory(task);
       } else if (ev.type === "cancelled") {
@@ -247,6 +309,30 @@ async function drainQueue(): Promise<void> {
 }
 
 /**
+ * Enqueue a download again from a history record, applying the current
+ * settings for everything the record does not carry. Returns null when the
+ * record is missing.
+ */
+async function restartFromHistory(id: string): Promise<DownloadTask | null> {
+  const record = history.value.find((t) => t.id === id);
+  if (!record) return null;
+  const settings = dependencies.settings;
+  return start({
+    ...baseSpecFromSettings(settings),
+    url: record.url,
+    kind: record.kind,
+    format: record.format,
+    downloadPath: record.downloadPath || settings.downloadPath,
+    quality: settings.quality,
+    filenameTemplate: settings.filenameTemplate,
+    // Reproduce the original task's choices; legacy records without the
+    // fields restart bare (previous behaviour).
+    subtitles: record.subtitles ?? false,
+    thumbnail: record.thumbnail ?? false,
+  });
+}
+
+/**
  * Enqueue a real download. Resolves the title via yt-dlp when none is given.
  * Returns the task so callers can follow its status.
  */
@@ -263,6 +349,11 @@ async function start(spec: StartSpec): Promise<DownloadTask> {
     totalBytes: null,
     speed: null,
     eta: null,
+    downloadPath: spec.downloadPath,
+    subtitles: spec.subtitles,
+    thumbnail: spec.thumbnail,
+    playlistIndex: null,
+    playlistTotal: null,
     createdAt: Date.now(),
   });
   active.value.push(task);
@@ -298,6 +389,7 @@ const diskUsage = computed(() =>
     totalSpeed,
     diskUsage,
     start,
+    restartFromHistory,
     removeHistory,
     cancel,
     dispose: () => scope.stop(),

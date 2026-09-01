@@ -25,3 +25,4 @@ pulse-app.zip
 *.njsproj
 *.sln
 *.sw?
+.bun-cache/

@@ -15,8 +15,9 @@ vi.mock("../services/ytdlp", () => ({
   resolveUrl: vi.fn(async () => ({ title: "resolved" })),
 }));
 
-import { createDownloadStore, type StartSpec } from "./useDownloads";
+import { createDownloadStore, normalizedPercent, type StartSpec } from "./useDownloads";
 import { reactive } from "vue";
+import { baseDownloadSettings } from "./downloadSettings.fixture";
 
 const stores: ReturnType<typeof createDownloadStore>[] = [];
 
@@ -39,7 +40,7 @@ async function flushQueue() {
 }
 
 function createStore() {
-  const settings = reactive({ concurrent: 1 });
+  const settings = reactive(baseDownloadSettings());
   const store = createDownloadStore({
     settings,
     loadHistory: () => [],
@@ -121,5 +122,19 @@ describe("useDownloads", () => {
     expect(mocks.startDownload).toHaveBeenCalledTimes(1);
     expect(downloads.activeCount.value).toBe(1);
     expect(downloads.queuedCount.value).toBe(1);
+  });
+});
+
+describe("normalizedPercent", () => {
+  it("aggregates progress across playlist items", () => {
+    expect(normalizedPercent({ percent: 0, playlistIndex: 1, playlistTotal: 4 })).toBe(0);
+    expect(normalizedPercent({ percent: 50, playlistIndex: 2, playlistTotal: 4 })).toBe(38);
+    expect(normalizedPercent({ percent: 100, playlistIndex: 4, playlistTotal: 4 })).toBe(100);
+  });
+
+  it("falls back to the raw percent without playlist metadata", () => {
+    expect(normalizedPercent({ percent: 42 })).toBe(42);
+    expect(normalizedPercent({ percent: 42, playlistIndex: null, playlistTotal: null })).toBe(42);
+    expect(normalizedPercent({ percent: 42, playlistIndex: 1, playlistTotal: 1 })).toBe(42);
   });
 });

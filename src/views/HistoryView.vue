@@ -12,8 +12,9 @@ import {
   Download,
 } from "lucide-vue-next";
 import { useDownloads, formatBytes } from "../composables/useDownloads";
+import { openFolder } from "../services/ytdlp";
 
-type FileType = "video" | "audio" | "subtitle";
+type FileType = "video" | "audio";
 
 interface Row {
   id: string;
@@ -24,10 +25,14 @@ interface Row {
   format: string;
   type: FileType;
   time: string;
-  status: "completed" | "failed";
+  status: "completed" | "failed" | "cancelled";
+  /** Finish/create timestamp (for sorting). */
+  ts: number;
+  /** Directory the file was downloaded into (undefined for legacy records). */
+  downloadPath?: string;
 }
 
-const { history, removeHistory } = useDownloads();
+const { history, removeHistory, restartFromHistory } = useDownloads();
 
 function sourceOf(url: string): string {
   try {
@@ -50,6 +55,12 @@ function timeAgo(ts: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
+const STATUS_TEXT: Record<Row["status"], string> = {
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
 const records = computed<Row[]>(() =>
   history.value.map((t) => ({
     id: t.id,
@@ -60,28 +71,54 @@ const records = computed<Row[]>(() =>
     format: t.format.toUpperCase(),
     type: t.kind === "audio" ? "audio" : "video",
     time: timeAgo(t.finishedAt ?? t.createdAt),
-    status: t.status === "completed" ? "completed" : "failed",
+    status: t.status === "completed" ? "completed" : t.status === "cancelled" ? "cancelled" : "failed",
+    ts: t.finishedAt ?? t.createdAt,
+    downloadPath: t.downloadPath,
   })),
 );
 
 const keyword = ref("");
 const filter = ref<"all" | FileType>("all");
+const sortDesc = ref(true);
+const PAGE_SIZE = 20;
+const visibleCount = ref(PAGE_SIZE);
 
 const counts = computed(() => ({
   all: records.value.length,
   video: records.value.filter((r) => r.type === "video").length,
   audio: records.value.filter((r) => r.type === "audio").length,
-  subtitle: records.value.filter((r) => r.type === "subtitle").length,
 }));
 
-const filtered = computed(() =>
-  records.value.filter((r) => {
+const filtered = computed(() => {
+  const rows = records.value.filter((r) => {
     const matchType = filter.value === "all" || r.type === filter.value;
     const kw = keyword.value.trim().toLowerCase();
     const matchKw = !kw || r.title.toLowerCase().includes(kw) || r.source.includes(kw);
     return matchType && matchKw;
-  }),
-);
+  });
+  rows.sort((a, b) => (sortDesc.value ? b.ts - a.ts : a.ts - b.ts));
+  return rows;
+});
+
+/** Current page of the filtered list. */
+const paged = computed(() => filtered.value.slice(0, visibleCount.value));
+
+const hasMore = computed(() => filtered.value.length > paged.value.length);
+
+/** Reveal the download directory in the system file manager. */
+async function openRecordFolder(row: Row) {
+  if (!row.downloadPath) return;
+  try {
+    await openFolder(row.downloadPath);
+  } catch {
+    /* opener unavailable — ignore */
+  }
+}
+
+/** Re-enqueue a history record with the current settings. */
+function restart(row: Row) {
+  restartFromHistory(row.id);
+}
 
 const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s + (t.downloadedBytes || 0), 0)));
 </script>
@@ -102,9 +139,14 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
             class="w-full h-10 pl-10 pr-4 ydl-input"
           />
         </div>
-        <button type="button" class="ydl-sort-btn">
+        <button
+          type="button"
+          class="ydl-sort-btn"
+          :title="sortDesc ? '当前：最新在前，点击切换' : '当前：最旧在前，点击切换'"
+          @click="sortDesc = !sortDesc"
+        >
           <span>按时间排序</span>
-          <ChevronDown class="w-3.5 h-3.5 text-muted-foreground" />
+          <ChevronDown class="w-3.5 h-3.5 text-muted-foreground transition-transform" :class="{ 'rotate-180': !sortDesc }" />
         </button>
       </div>
 
@@ -137,15 +179,6 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
           <span>音频</span>
           <span class="opacity-80">{{ counts.audio }}</span>
         </button>
-        <button
-          type="button"
-          class="ydl-filter-pill"
-          :class="{ 'is-active': filter === 'subtitle' }"
-          @click="filter = 'subtitle'"
-        >
-          <span>字幕</span>
-          <span class="opacity-80">{{ counts.subtitle }}</span>
-        </button>
       </div>
     </div>
 
@@ -166,7 +199,7 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
       </div>
 
       <div v-else>
-        <div v-for="row in filtered" :key="row.id" class="hd-grid hd-row">
+        <div v-for="row in paged" :key="row.id" class="hd-grid hd-row">
           <div class="flex items-center gap-3 min-w-0">
             <div class="thumb shrink-0">
               <Play v-if="row.icon === 'play'" class="w-4 h-4" />
@@ -179,19 +212,32 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
           <span class="text-[13px] text-muted-foreground whitespace-nowrap">{{ row.time }}</span>
           <span class="status" :class="row.status">
             <span class="dot"></span>
-            {{ row.status === "completed" ? "已完成" : "失败" }}
+            {{ STATUS_TEXT[row.status] }}
           </span>
           <div class="flex items-center gap-1">
-            <button type="button" class="ydl-action-btn" aria-label="打开文件夹">
+            <button
+              type="button"
+              class="ydl-action-btn"
+              aria-label="打开文件夹"
+              :disabled="!row.downloadPath"
+              :title="row.downloadPath ? '打开文件夹' : '该记录未保存下载目录'"
+              @click="openRecordFolder(row)"
+            >
               <FolderOpen class="w-4 h-4" />
             </button>
-            <button type="button" class="ydl-action-btn" aria-label="重新下载">
+            <button
+              type="button"
+              class="ydl-action-btn"
+              aria-label="重新下载"
+              title="按当前设置重新下载"
+              @click="restart(row)"
+            >
               <Download class="w-4 h-4" />
             </button>
             <button type="button" class="ydl-action-btn" aria-label="删除" @click="removeHistory(row.id)">
               <Trash2 class="w-4 h-4" />
             </button>
-            <button type="button" class="ydl-action-btn" aria-label="更多操作">
+            <button type="button" class="ydl-action-btn" aria-label="更多操作" disabled title="开发中，敬请期待">
               <Ellipsis class="w-4 h-4" />
             </button>
           </div>
@@ -200,9 +246,9 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
     </div>
 
     <!-- Load more -->
-    <div class="flex justify-center">
-      <button type="button" class="ydl-load-more">
-        <span>加载更多</span>
+    <div v-if="hasMore" class="flex justify-center">
+      <button type="button" class="ydl-load-more" @click="visibleCount += PAGE_SIZE">
+        <span>加载更多（还有 {{ filtered.length - paged.length }} 条）</span>
         <ChevronDown class="w-4 h-4" />
       </button>
     </div>

@@ -6,11 +6,15 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::ipc::Channel;
+use tauri::Manager;
 
 type ManagedChild = Arc<Mutex<std::process::Child>>;
 
 struct ManagedTask {
     child: ManagedChild,
+    // Unix cancellation is detected via the SIGKILL signal death of the
+    // process group (atomic); other platforms need an explicit flag.
+    #[cfg(not(unix))]
     cancel_requested: bool,
 }
 
@@ -24,6 +28,20 @@ impl DownloadManager {
     fn new() -> Self {
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Terminate every managed yt-dlp process tree. Called on app exit so
+    /// closing the window does not orphan running downloads (and their
+    /// ffmpeg children).
+    fn kill_all(&self) {
+        let tasks = self.tasks.lock();
+        for task in tasks.values() {
+            // A locked child means the runner is reaping an already-exited
+            // process — nothing to kill.
+            if let Some(mut guard) = task.child.try_lock() {
+                ytdlp::kill_process_tree(&mut guard);
+            }
         }
     }
 }
@@ -70,6 +88,19 @@ fn detect_ytdlp() -> Result<Option<ytdlp::Detection>, String> {
     Ok(ytdlp::detect())
 }
 
+/// Probe common locations / PATH for a working ffmpeg (+ ffprobe).
+#[tauri::command]
+fn detect_ffmpeg() -> Result<Option<ytdlp::Detection>, String> {
+    Ok(ytdlp::detect_ffmpeg())
+}
+
+/// Verify a user-configured ffmpeg location (binary or directory), falling
+/// back to auto-detection; returns the version banner.
+#[tauri::command]
+fn check_ffmpeg(path: Option<String>) -> Result<String, String> {
+    ytdlp::check_ffmpeg(path)
+}
+
 /// Update a standalone yt-dlp executable after explicit user confirmation.
 #[tauri::command]
 fn update_ytdlp(binary: Option<String>) -> Result<String, String> {
@@ -81,6 +112,8 @@ pub fn run() {
     tauri::Builder::default()
         .manage(DownloadManager::new())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             greet,
             resolve_url,
@@ -88,8 +121,15 @@ pub fn run() {
             cancel_download,
             ytdlp_version,
             detect_ytdlp,
+            detect_ffmpeg,
+            check_ffmpeg,
             update_ytdlp
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                app.state::<DownloadManager>().kill_all();
+            }
+        });
 }

@@ -15,6 +15,8 @@ export interface DownloadSettings {
   cookieEnabled: boolean;
   cookiePath: string;
   removePartialFiles: boolean;
+  /** ffmpeg binary path or directory; empty = auto-detect per app run. */
+  ffmpegPath: string;
 }
 
 const STORAGE_KEY = "pulse.download-settings";
@@ -34,6 +36,7 @@ const defaults: DownloadSettings = {
   cookieEnabled: false,
   cookiePath: "",
   removePartialFiles: false,
+  ffmpegPath: "",
 };
 
 const legacyQuality: Record<string, DownloadSettings["quality"]> = {
@@ -87,6 +90,7 @@ function load(): DownloadSettings {
       cookieEnabled: typeof value.cookieEnabled === "boolean" ? value.cookieEnabled : defaults.cookieEnabled,
       cookiePath: stringSetting(value.cookiePath, defaults.cookiePath),
       removePartialFiles: typeof value.removePartialFiles === "boolean" ? value.removePartialFiles : defaults.removePartialFiles,
+      ffmpegPath: stringSetting(value.ffmpegPath, defaults.ffmpegPath),
     };
   } catch {
     return { ...defaults };

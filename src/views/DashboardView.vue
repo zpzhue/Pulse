@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
   Download,
   CircleCheck,
@@ -11,15 +11,32 @@ import {
   X,
   Plus,
   Inbox,
+  AlertTriangle,
 } from "lucide-vue-next";
 import {
   useDownloads,
   formatBytes,
   formatSpeed,
   formatEta,
+  normalizedPercent,
 } from "../composables/useDownloads";
+import { useDownloadSettings } from "../composables/useDownloadSettings";
+import { detectFfmpeg } from "../services/ytdlp";
 
 const { active, activeCount, queuedCount, completedCount, totalSpeed, diskUsage, cancel } = useDownloads();
+const { settings: downloadSettings } = useDownloadSettings();
+
+/* Missing-ffmpeg banner: auto-detect once per mount, skip when the user
+   configured an explicit ffmpeg path (it wins over detection). */
+const ffmpegMissing = ref(false);
+onMounted(async () => {
+  if (downloadSettings.ffmpegPath.trim()) return;
+  try {
+    ffmpegMissing.value = (await detectFfmpeg()) === null;
+  } catch {
+    ffmpegMissing.value = true;
+  }
+});
 
 const speedMB = computed(() => (totalSpeed.value / 1048576).toFixed(1));
 const diskGB = computed(() => (diskUsage.value / 1073741824).toFixed(1));
@@ -48,6 +65,20 @@ const stats = computed(() => [
         <Plus class="w-4 h-4" />
         <span>新建下载</span>
       </RouterLink>
+    </div>
+
+    <!-- ffmpeg missing banner -->
+    <div
+      v-if="ffmpegMissing"
+      class="mb-5 flex items-center gap-3 rounded-lg border px-4 py-3 text-[13px]"
+      style="border-color: color-mix(in srgb, var(--state-warning) 40%, transparent); background: color-mix(in srgb, var(--state-warning) 10%, transparent);"
+    >
+      <AlertTriangle class="w-4 h-4 shrink-0" style="color: var(--state-warning);" />
+      <span class="flex-1 text-foreground">未检测到 ffmpeg —— 音视频合并与 MP3 转码不可用，请在设置中配置或安装 ffmpeg。</span>
+      <RouterLink
+        to="/settings"
+        class="shrink-0 font-medium text-primary hover:underline"
+      >前往设置</RouterLink>
     </div>
 
     <!-- Stats Strip -->
@@ -102,13 +133,14 @@ const stats = computed(() => [
               <div class="flex items-center justify-between mb-1.5">
                 <span class="font-mono text-[12px] text-muted-foreground">
                   {{ formatBytes(d.downloadedBytes) }} / {{ d.totalBytes != null ? formatBytes(d.totalBytes) : "未知" }}
+                  <template v-if="(d.playlistTotal ?? 0) > 1 && (d.playlistIndex ?? 0) >= 1"> · 第 {{ d.playlistIndex }}/{{ d.playlistTotal }} 个</template>
                 </span>
-                <span class="font-mono text-[12px] text-primary font-medium tabular-nums">{{ d.percent }}%</span>
+                <span class="font-mono text-[12px] text-primary font-medium tabular-nums">{{ normalizedPercent(d) }}%</span>
               </div>
               <div class="h-2 rounded-full bg-muted overflow-hidden">
                 <div
                   class="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-                  :style="{ width: (d.status === 'pending' ? 0 : d.percent) + '%' }"
+                  :style="{ width: (d.status === 'pending' ? 0 : normalizedPercent(d)) + '%' }"
                 ></div>
               </div>
             </div>

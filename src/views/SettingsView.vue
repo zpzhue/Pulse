@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
+import { getVersion } from "@tauri-apps/api/app";
 import {
   Palette,
   Download,
@@ -15,7 +16,7 @@ import {
 } from "lucide-vue-next";
 import { useTheme } from "../composables/useTheme";
 import { useDownloadSettings } from "../composables/useDownloadSettings";
-import { checkVersion, getBinary, setManualBinary, updateYtdlp } from "../services/ytdlp";
+import { checkVersion, chooseDirectory, chooseFile, checkFfmpeg, detectFfmpeg, getBinary, setManualBinary, updateYtdlp } from "../services/ytdlp";
 
 const { isDark, accent, accents, toggleDark, setAccent } = useTheme();
 
@@ -39,8 +40,62 @@ const { settings: downloadSettings } = useDownloadSettings();
 
 /* ---- yt-dlp 配置 ---- */
 const ytdlpPath = ref(getBinary());
+
+/** Pick the default download directory. */
+async function browseDownloadPath() {
+  const dir = await chooseDirectory(downloadSettings.downloadPath);
+  if (dir) downloadSettings.downloadPath = dir;
+}
+
+/** Pick the yt-dlp binary (any file; executability is checked on save). */
+async function browseYtdlpBinary() {
+  const file = await chooseFile();
+  if (file) ytdlpPath.value = file;
+}
+
+/** Pick the ffmpeg binary (or leave empty to auto-detect). */
+async function browseFfmpegBinary() {
+  const file = await chooseFile();
+  if (file) downloadSettings.ffmpegPath = file;
+}
+
+/** Pick a Netscape-format cookies.txt file. */
+async function browseCookieFile() {
+  const file = await chooseFile([{ name: "Cookie 文件", extensions: ["txt"] }]);
+  if (file) downloadSettings.cookiePath = file;
+}
 const ytdlpStatus = ref("");
 const ytdlpTesting = ref(false);
+
+/* ---- 关于面板：真实版本信息 ---- */
+const appVersion = ref("…");
+const engineVersion = ref("yt-dlp");
+const platformLabel = (() => {
+  const p = navigator.platform || "";
+  if (/win/i.test(p)) return "Windows";
+  if (/mac/i.test(p)) return "macOS";
+  if (/linux/i.test(p)) return "Linux";
+  return p || "未知";
+})();
+
+onMounted(async () => {
+  try {
+    appVersion.value = `v${await getVersion()}`;
+  } catch {
+    appVersion.value = "未知";
+  }
+  try {
+    engineVersion.value = `yt-dlp ${await checkVersion(getBinary())}`;
+  } catch {
+    engineVersion.value = "yt-dlp（未探测）";
+  }
+});
+
+/** Extract e.g. "7.1" from an ffmpeg version banner's first line. */
+function formatFfmpegVersion(firstLine: string): string {
+  const parts = firstLine.split(/\s+/);
+  return parts[0] === "ffmpeg" && parts[1] === "version" ? (parts[2] ?? firstLine) : firstLine;
+}
 
 async function persistAndTest() {
   if (!ytdlpPath.value.trim()) {
@@ -52,7 +107,28 @@ async function persistAndTest() {
   ytdlpTesting.value = true;
   try {
     const v = await checkVersion(ytdlpPath.value.trim());
-    ytdlpStatus.value = `连接成功：yt-dlp ${v}`;
+    let status = `连接成功：yt-dlp ${v}`;
+    try {
+      const manualFfmpeg = downloadSettings.ffmpegPath.trim();
+      if (manualFfmpeg) {
+        // Verify the user-configured location instead of auto-detection;
+        // surface the concrete error (unreachable path, not ffmpeg, …).
+        try {
+          const banner = await checkFfmpeg(manualFfmpeg);
+          status += `；ffmpeg ${formatFfmpegVersion(banner)}（${manualFfmpeg}）`;
+        } catch (e) {
+          status += `；⚠️ ffmpeg 验证失败：${String(e)}`;
+        }
+      } else {
+        const ffmpeg = await detectFfmpeg();
+        status += ffmpeg
+          ? `；ffmpeg ${formatFfmpegVersion(ffmpeg.version)}（${ffmpeg.path}）`
+          : "；⚠️ 未检测到 ffmpeg，音视频合并 / MP3 转码不可用";
+      }
+    } catch {
+      status += "；⚠️ ffmpeg 状态探测出错";
+    }
+    ytdlpStatus.value = status;
   } catch (e) {
     ytdlpStatus.value = `连接失败：${String(e)}`;
   } finally {
@@ -214,7 +290,7 @@ async function confirmAndUpdate() {
           <label class="st-label-above">下载路径</label>
           <div class="flex gap-2">
             <input v-model="downloadSettings.downloadPath" type="text" class="st-input flex-1 font-mono" />
-            <button type="button" class="st-btn-browse">
+            <button type="button" class="st-btn-browse" @click="browseDownloadPath">
               <Folder class="w-3.5 h-3.5" />
               <span>浏览</span>
             </button>
@@ -246,7 +322,23 @@ async function confirmAndUpdate() {
           <label class="st-label-above">yt-dlp 路径</label>
           <div class="flex gap-2">
             <input v-model="ytdlpPath" type="text" class="st-input flex-1 font-mono" />
-            <button type="button" class="st-btn-browse">
+            <button type="button" class="st-btn-browse" @click="browseYtdlpBinary">
+              <Folder class="w-3.5 h-3.5" />
+              <span>浏览</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="st-item">
+          <label class="st-label-above">ffmpeg 路径（可选）</label>
+          <div class="flex gap-2">
+            <input
+              v-model="downloadSettings.ffmpegPath"
+              type="text"
+              placeholder="留空自动探测（PATH / Homebrew / ~/.local/bin）"
+              class="st-input flex-1 font-mono"
+            />
+            <button type="button" class="st-btn-browse" @click="browseFfmpegBinary">
               <Folder class="w-3.5 h-3.5" />
               <span>浏览</span>
             </button>
@@ -294,8 +386,12 @@ async function confirmAndUpdate() {
               <span class="knob"></span>
             </button>
           </div>
-          <div class="mt-3">
-            <input v-model="downloadSettings.cookiePath" type="text" placeholder="Cookie 文件绝对路径" class="st-input w-full font-mono" :disabled="!downloadSettings.cookieEnabled" />
+          <div class="mt-3 flex gap-2">
+            <input v-model="downloadSettings.cookiePath" type="text" placeholder="Cookie 文件绝对路径" class="st-input flex-1 font-mono" :disabled="!downloadSettings.cookieEnabled" />
+            <button type="button" class="st-btn-browse" :disabled="!downloadSettings.cookieEnabled" @click="browseCookieFile">
+              <Folder class="w-3.5 h-3.5" />
+              <span>浏览</span>
+            </button>
           </div>
         </div>
 
@@ -378,25 +474,25 @@ async function confirmAndUpdate() {
             </div>
             <div class="flex items-center justify-between">
               <span class="text-[13px] text-muted-foreground">版本</span>
-              <span class="text-[14px] text-foreground font-medium font-mono">v2025.08</span>
+              <span class="text-[14px] text-foreground font-medium font-mono">{{ appVersion }}</span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-[13px] text-muted-foreground">引擎</span>
-              <span class="text-[14px] text-foreground font-medium font-mono">yt-dlp 2025.08</span>
+              <span class="text-[14px] text-foreground font-medium font-mono">{{ engineVersion }}</span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-[13px] text-muted-foreground">平台</span>
-              <span class="text-[14px] text-foreground font-medium">Windows / macOS</span>
+              <span class="text-[14px] text-foreground font-medium">{{ platformLabel }}</span>
             </div>
           </div>
         </div>
 
         <div class="st-item flex items-center gap-3">
-          <button type="button" class="st-btn-secondary">
+          <button type="button" class="st-btn-secondary" disabled title="应用内自动更新尚在规划中">
             <RefreshCw class="w-3.5 h-3.5" />
             <span>检查更新</span>
           </button>
-          <button type="button" class="st-btn-secondary">
+          <button type="button" class="st-btn-secondary" disabled title="本项目暂未公开仓库">
             <Github class="w-3.5 h-3.5" />
             <span>开源仓库</span>
           </button>
