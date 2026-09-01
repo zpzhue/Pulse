@@ -170,6 +170,7 @@ async function confirmAndUpdate() {
         :key="item.key"
         type="button"
         class="st-nav-item"
+        :data-testid="`settings-nav-${item.key}`"
         :class="{ active: activePanel === item.key }"
         @click="activePanel = item.key"
       >
@@ -364,21 +365,6 @@ async function confirmAndUpdate() {
         <div class="st-item">
           <div class="flex items-center justify-between gap-4">
             <div>
-              <span class="st-label">HTTP 代理</span>
-              <span class="st-desc">通过代理服务器访问视频网站</span>
-            </div>
-            <button type="button" class="st-toggle" :class="{ on: downloadSettings.proxyEnabled }" role="switch" :aria-checked="downloadSettings.proxyEnabled" @click="downloadSettings.proxyEnabled = !downloadSettings.proxyEnabled">
-              <span class="knob"></span>
-            </button>
-          </div>
-          <div class="mt-3">
-            <input v-model="downloadSettings.proxyUrl" type="text" placeholder="http://127.0.0.1:7890" class="st-input w-full font-mono" :disabled="!downloadSettings.proxyEnabled" />
-          </div>
-        </div>
-
-        <div class="st-item">
-          <div class="flex items-center justify-between gap-4">
-            <div>
               <span class="st-label">Cookie 配置</span>
               <span class="st-desc">使用浏览器 Cookie 访问受限内容</span>
             </div>
@@ -413,6 +399,41 @@ async function confirmAndUpdate() {
           <h2>网络</h2>
           <p>调整下载的网络行为与传输策略</p>
         </div>
+
+        <section class="network-proxy" data-testid="network-proxy-settings">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <h3 class="text-[14px] font-medium text-foreground">代理</h3>
+              <p class="mt-1 text-[13px] text-muted-foreground">为链接解析和下载任务使用 HTTP 或 SOCKS 代理</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="proxy-state" :class="{ on: downloadSettings.proxyEnabled }">
+                {{ downloadSettings.proxyEnabled ? "已开启" : "已关闭" }}
+              </span>
+              <button
+                type="button"
+                class="st-toggle proxy-toggle"
+                :class="{ on: downloadSettings.proxyEnabled }"
+                role="switch"
+                :aria-checked="downloadSettings.proxyEnabled"
+                data-testid="proxy-toggle"
+                @click="downloadSettings.proxyEnabled = !downloadSettings.proxyEnabled"
+              >
+                <span class="knob"></span>
+              </button>
+            </div>
+          </div>
+          <label class="mt-4 block">
+            <span class="mb-2 block text-[12px] text-muted-foreground">代理地址</span>
+            <input
+              v-model="downloadSettings.proxyUrl"
+              type="text"
+              placeholder="http://127.0.0.1:7890"
+              class="st-input w-full font-mono"
+              :disabled="!downloadSettings.proxyEnabled"
+            />
+          </label>
+        </section>
 
         <div class="st-item flex items-center justify-between gap-4">
           <div>
@@ -572,6 +593,13 @@ async function confirmAndUpdate() {
   padding: 16px 0;
   border-bottom: 1px solid var(--ydl-border);
 }
+.network-proxy {
+  margin-bottom: 8px;
+  padding: 16px;
+  border: 1px solid var(--ydl-border);
+  border-radius: 8px;
+  background: var(--ydl-muted);
+}
 .st-item:last-child {
   border-bottom: none;
 }
@@ -649,20 +677,28 @@ async function confirmAndUpdate() {
 
 .st-toggle {
   position: relative;
-  width: 44px;
-  height: 24px;
+  width: 46px;
+  height: 26px;
+  border: 1px solid var(--ydl-neutral-400);
   border-radius: 999px;
-  border: none;
   padding: 0;
+  background: var(--ydl-neutral-300);
   cursor: pointer;
-  transition: background 160ms;
+  box-shadow: inset 0 1px 1px rgb(0 0 0 / 8%);
+  transition: background 160ms, border-color 160ms, box-shadow 160ms;
   flex-shrink: 0;
 }
-.st-toggle.off {
-  background: var(--ydl-muted);
+.st-toggle:hover {
+  border-color: var(--ydl-neutral-500);
+}
+.st-toggle:focus-visible {
+  outline: 2px solid var(--ydl-ring);
+  outline-offset: 2px;
 }
 .st-toggle.on {
+  border-color: var(--ydl-primary);
   background: var(--ydl-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ydl-primary) 18%, transparent);
 }
 .st-toggle .knob {
   position: absolute;
@@ -672,10 +708,21 @@ async function confirmAndUpdate() {
   height: 20px;
   border-radius: 999px;
   background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 24%);
   transition: transform 160ms;
 }
 .st-toggle.on .knob {
   transform: translateX(20px);
+}
+.proxy-state {
+  min-width: 40px;
+  color: var(--ydl-muted-foreground);
+  font-size: 12px;
+  text-align: right;
+}
+.proxy-state.on {
+  color: var(--ydl-primary);
+  font-weight: 600;
 }
 
 .swatch {
