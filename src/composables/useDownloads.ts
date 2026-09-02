@@ -66,6 +66,8 @@ export interface StartSpec {
   retries?: number;
   cookiePath?: string;
   ffmpegPath?: string;
+  /** 显式跳过"已完成/在队"查重（历史页「重新下载」用；默认查重）。 */
+  force?: boolean;
 }
 
 /**
@@ -82,6 +84,32 @@ export function baseSpecFromSettings(settings: DownloadSettings) {
     cookiePath: settings.cookieEnabled ? settings.cookiePath : undefined,
     ffmpegPath: settings.ffmpegPath || undefined,
   };
+}
+
+/**
+ * 查重用的 URL 归一化：
+ * - 走 URL 解析：主机名自动小写、hash 一律去掉（不影响内容定位）
+ * - 剔除常见跟踪噪声：`si`（YouTube 分享追踪）、`feature`、`utm_*`——
+ *   重新粘贴同一视频时差异基本都来自这几个参数
+ * - 其余查询参数（v / list / p / t / bvid / av 等参与内容定位）原样保留，
+ *   宁可漏判也不能误杀真实新任务
+ * - 解析不了的输入退回 trim 后的原串（非 URL 值不误伤）
+ */
+export function canonicalDownloadUrl(url: string): string {
+  const raw = url.trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw);
+    parsed.hash = "";
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (key === "si" || key === "feature" || key.startsWith("utm_")) {
+        parsed.searchParams.delete(key);
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return raw;
+  }
 }
 
 const HISTORY_KEY = "pulse.history";
@@ -182,6 +210,22 @@ export function createDownloadStore(dependencies: DownloadStoreDependencies) {
   function normalizeTaskPath(task: DownloadTask): DownloadTask {
     if (typeof task.downloadPath !== "string") return task;
     return { ...task, downloadPath: normalizeStoredPath(task.downloadPath) };
+  }
+
+  /**
+   * 入队前查重：同一（归一化后）URL 是否已在历史里成功完成。命中已完成是
+   * 用户最常踩的场景——yt-dlp 遇到已存在文件只是白跑一趟，这里直接不建
+   * 任务并让 UI 给提醒。刻意不管"在队/下载中"的同 URL：同一视频选不同格式
+   * 两次入队是合法场景，误伤比放过更烦人。
+   */
+  function findDuplicate(url: string): DownloadTask | null {
+    const key = canonicalDownloadUrl(url);
+    if (!key) return null;
+    return (
+      history.value.find(
+        (task) => task.status === "completed" && canonicalDownloadUrl(task.url) === key,
+      ) ?? null
+    );
   }
 
   async function init(): Promise<void> {
@@ -401,6 +445,8 @@ async function restartFromHistory(id: string): Promise<DownloadTask | null> {
     // fields restart bare (previous behaviour).
     subtitles: record.subtitles ?? false,
     thumbnail: record.thumbnail ?? false,
+    // 「重新下载」是用户对这一条的显式重下意图，不参与查重拦截。
+    force: true,
   });
 }
 
@@ -409,6 +455,12 @@ async function restartFromHistory(id: string): Promise<DownloadTask | null> {
  * Returns the task so callers can follow its status.
  */
 async function start(spec: StartSpec): Promise<DownloadTask> {
+  // 查重兜底：视图层拦过之后这里仍要挡（绕过 UI 的调用方）。命中时返回既有
+  // 的已完成任务本身；「重新下载」通过 force 显式放行（见 restartFromHistory）。
+  if (!spec.force) {
+    const duplicate = findDuplicate(spec.url);
+    if (duplicate) return duplicate;
+  }
   // 唯一收口点：无论入口是新建下载、批量入队还是「重新下载」，落库与下发的
   // 目录都在这里规范化成绝对路径，`~/...` 老值与"未设置"哨兵都不会再流到后端
   // （后端不做 `~` 展开，Windows 上会依赖 yt-dlp 的 expand_path 落到意外目录）。
@@ -473,6 +525,7 @@ const diskUsage = computed(() =>
     diskUsage,
     init,
     start,
+    findDuplicate,
     restartFromHistory,
     removeHistory,
     cancel,

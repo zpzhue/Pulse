@@ -15,7 +15,7 @@ vi.mock("../services/ytdlp", () => ({
   resolveUrl: vi.fn(async () => ({ title: "resolved" })),
 }));
 
-import { createDownloadStore, normalizedPercent, type StartSpec } from "./useDownloads";
+import { createDownloadStore, normalizedPercent, canonicalDownloadUrl, type StartSpec } from "./useDownloads";
 import { reactive } from "vue";
 import { baseDownloadSettings } from "./downloadSettings.fixture";
 
@@ -187,6 +187,92 @@ describe("useDownloads", () => {
     expect(task.status).toBe("failed");
     expect(task.downloadPath).toBe("");
     expect(task.error).toContain("下载目录");
+  });
+});
+
+describe("duplicate detection", () => {
+  it("normalizes tracking noise but keeps content-identifying params", () => {
+    expect(canonicalDownloadUrl("https://youtu.be/dQw4w9WgXcQ?si=abc123&t=42")).toBe(
+      canonicalDownloadUrl("https://youtu.be/dQw4w9WgXcQ?t=42"),
+    );
+    expect(
+      canonicalDownloadUrl("https://youtube.com/watch?v=abc&utm_source=share&feature=share#frag"),
+    ).toBe(
+      canonicalDownloadUrl("https://youtube.com/watch?v=abc"),
+    );
+    // ?p / ?list 参与内容定位，绝不能被折叠掉
+    expect(canonicalDownloadUrl("https://b23.tv/x?p=2")).not.toBe(
+      canonicalDownloadUrl("https://b23.tv/x?p=3"),
+    );
+  });
+
+  it("skips a second download of an already-completed URL", async () => {
+    const settings = reactive(baseDownloadSettings());
+    const done = {
+      id: "hist-1",
+      title: "already",
+      url: "https://example.test/video",
+      kind: "video" as const,
+      format: "mp4",
+      status: "completed" as const,
+      percent: 100,
+      downloadedBytes: 10,
+      totalBytes: 10,
+      speed: null,
+      eta: null,
+      createdAt: 1,
+    };
+    const downloads = createDownloadStore({
+      settings,
+      loadHistory: async () => [done],
+      persistHistory: async () => {},
+      loadActive: async () => [],
+      persistActive: async () => {},
+    });
+    stores.push(downloads);
+    await downloads.init();
+
+    const returned = await downloads.start({ ...spec, title: "again" });
+    await flushQueue();
+
+    // 不新建任务、不触发后端；返回的就是那条已完成的历史记录
+    expect(returned.id).toBe("hist-1");
+    expect(mocks.startDownload).not.toHaveBeenCalled();
+    expect(downloads.active.value).toHaveLength(0);
+    expect(downloads.findDuplicate("https://example.test/video?si=junk")).toEqual(expect.objectContaining({ id: "hist-1" }));
+  });
+
+  it("re-download from history still bypasses the dedupe", async () => {
+    const settings = reactive(baseDownloadSettings());
+    const done = {
+      id: "hist-2",
+      title: "rerun",
+      url: "https://example.test/again",
+      kind: "video" as const,
+      format: "mp4",
+      status: "completed" as const,
+      percent: 100,
+      downloadedBytes: 1,
+      totalBytes: 1,
+      speed: null,
+      eta: null,
+      createdAt: 1,
+    };
+    const downloads = createDownloadStore({
+      settings,
+      loadHistory: async () => [done],
+      persistHistory: async () => {},
+      loadActive: async () => [],
+      persistActive: async () => {},
+    });
+    stores.push(downloads);
+    await downloads.init();
+
+    const task = await downloads.restartFromHistory("hist-2");
+    await flushQueue();
+
+    expect(task?.status).toBe("downloading");
+    expect(mocks.startDownload).toHaveBeenCalledTimes(1);
   });
 });
 

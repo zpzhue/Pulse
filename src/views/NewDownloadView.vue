@@ -30,7 +30,7 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const { start: startTask } = useDownloads();
+const { start: startTask, findDuplicate } = useDownloads();
 const { settings: downloadSettings } = useDownloadSettings();
 
 /* ---- 交互状态 ---- */
@@ -59,7 +59,7 @@ interface Row {
   /** Picked stream id (row dropdown); null → yt-dlp default selection. */
   selectedFormatId: string | null;
   selected: boolean;
-  status: "ready" | "downloading" | "completed" | "failed" | "cancelled";
+  status: "ready" | "downloading" | "completed" | "failed" | "cancelled" | "duplicate";
 }
 
 const rows = ref<Row[]>([]);
@@ -149,6 +149,8 @@ function statusText(status: Row["status"]): string {
       return "失败";
     case "cancelled":
       return "已取消";
+    case "duplicate":
+      return "已下载过";
   }
 }
 
@@ -244,6 +246,8 @@ function statusForTask(status: DownloadTask["status"]): Row["status"] {
  * Enqueue one task per selected row. Rows carrying a picked format id
  * download that exact stream (video-only streams combined with bestaudio);
  * rows without one fall back to yt-dlp's default selection (URL only).
+ * 此前已下载成功的条目不再重复建任务（yt-dlp 遇到已存在文件也只是白跑
+ * 一趟），行内标成「已下载过」并在面板给出提醒。
  */
 async function startSelected() {
   const selected = rows.value.filter((row) => row.selected);
@@ -255,9 +259,15 @@ async function startSelected() {
   submitting.value = true;
   try {
     let queued = 0;
+    const completedTitles: string[] = [];
     for (const row of selected) {
       if (!row.url) {
         row.status = "failed";
+        continue;
+      }
+      if (findDuplicate(row.url)) {
+        row.status = "duplicate";
+        completedTitles.push(row.title || row.url);
         continue;
       }
       const picked = selectedFormat(row);
@@ -286,8 +296,17 @@ async function startSelected() {
         },
       );
     }
-    if (queued > 0) {
+    const notes: string[] = [];
+    if (completedTitles.length > 0) {
+      const shown = completedTitles.slice(0, 2).join("、");
+      notes.push(`已跳过 ${completedTitles.length} 个此前下载完成的条目（${shown}${completedTitles.length > 2 ? " 等" : ""}），如需重下请到历史记录点「重新下载」`);
+    }
+    if (queued > 0 && notes.length === 0) {
       emit("close");
+    } else if (queued > 0) {
+      feedback.value = `已加入 ${queued} 个新任务；${notes.join("；")}`;
+    } else if (notes.length > 0) {
+      feedback.value = notes.join("；");
     } else {
       feedback.value = "所选条目缺少下载链接";
     }
