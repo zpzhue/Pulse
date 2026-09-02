@@ -26,3 +26,6 @@ pulse-app.zip
 *.sln
 *.sw?
 .bun-cache/
+
+# AgentTeams 团队运行时状态目录
+.agent-teams/
