@@ -169,7 +169,7 @@ cargo test
 bun run tauri build
 ```
 
-Windows 安装版仅生成 MSI；发布工作流会另外生成不含安装器的便携版 ZIP。
+Windows 安装版仅生成 MSI；发布工作流会另外生成不含安装器的便携版 ZIP。推送 `v*` 标签后，GitHub Actions 会在所有平台构建成功后自动创建 GitHub Release，并附上 MSI、DMG 和便携版 ZIP。
 
 ## 项目结构
 
