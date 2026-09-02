@@ -43,8 +43,10 @@ function createStore() {
   const settings = reactive(baseDownloadSettings());
   return createDownloadStore({
     settings,
-    loadHistory: () => [],
-    persistHistory: () => {},
+    loadHistory: async () => [],
+    persistHistory: async () => {},
+    loadActive: async () => [],
+    persistActive: async () => {},
   });
 }
 

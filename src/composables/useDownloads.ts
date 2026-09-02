@@ -6,8 +6,14 @@ import {
   type DownloadOptions,
 } from "../services/ytdlp";
 import { useDownloadSettings, type DownloadSettings } from "./useDownloadSettings";
+import {
+  getActiveDownloads,
+  getDownloadHistory,
+  replaceActiveDownloads,
+  replaceDownloadHistory,
+} from "../services/storage";
 
-export type TaskStatus = "pending" | "downloading" | "cancelling" | "completed" | "failed" | "cancelled";
+export type TaskStatus = "pending" | "downloading" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted";
 
 /** A download task tracked by the app (active or persisted history). */
 export interface DownloadTask {
@@ -130,10 +136,17 @@ function loadHistory(): DownloadTask[] {
   }
 }
 
+interface PersistedActiveDownload {
+  task: DownloadTask;
+  spec: StartSpec;
+}
+
 interface DownloadStoreDependencies {
   settings: DownloadSettings;
-  loadHistory: () => DownloadTask[];
-  persistHistory: (tasks: DownloadTask[]) => void;
+  loadHistory: () => Promise<DownloadTask[]>;
+  persistHistory: (tasks: DownloadTask[]) => Promise<void>;
+  loadActive: () => Promise<PersistedActiveDownload[]>;
+  persistActive: (downloads: PersistedActiveDownload[]) => Promise<void>;
 }
 
 /**
@@ -156,15 +169,61 @@ export function normalizedPercent(task: {
 
 export function createDownloadStore(dependencies: DownloadStoreDependencies) {
   const active = ref<DownloadTask[]>([]);
-  const history = ref<DownloadTask[]>(dependencies.loadHistory());
+  const history = ref<DownloadTask[]>([]);
   const pendingSpecs = new Map<string, StartSpec>();
   const scope = effectScope();
   let drainingQueue = false;
+  let initialized = false;
+  let historyPersistTimer: ReturnType<typeof setTimeout> | undefined;
+  let activePersistTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function init(): Promise<void> {
+    if (initialized) return;
+    const [savedHistory, recovered] = await Promise.all([
+      dependencies.loadHistory(),
+      dependencies.loadActive(),
+    ]);
+    history.value = savedHistory.slice(-HISTORY_LIMIT);
+    for (const { task } of recovered) {
+      history.value.push({
+        ...task,
+        status: "interrupted",
+        speed: null,
+        eta: null,
+        error: "应用上次退出时下载未完成",
+        finishedAt: Date.now(),
+      });
+    }
+    initialized = true;
+    if (recovered.length > 0) {
+      await Promise.all([
+        dependencies.persistHistory(history.value.slice(-HISTORY_LIMIT)),
+        dependencies.persistActive([]),
+      ]).catch(() => {});
+    }
+  }
 
   scope.run(() => {
-    // Persist history (deep) whenever it changes.
     watch(history, (h) => {
-      dependencies.persistHistory(h.slice(-HISTORY_LIMIT));
+      if (!initialized) return;
+      if (historyPersistTimer) clearTimeout(historyPersistTimer);
+      historyPersistTimer = setTimeout(() => {
+        void dependencies.persistHistory(h.slice(-HISTORY_LIMIT)).catch(() => {});
+      }, 150);
+    }, { deep: true });
+
+    watch(active, (tasks) => {
+      if (!initialized) return;
+      if (activePersistTimer) clearTimeout(activePersistTimer);
+      activePersistTimer = setTimeout(() => {
+        const downloads = tasks
+          .map((task) => {
+            const spec = pendingSpecs.get(task.id);
+            return spec ? { task: { ...task }, spec } : null;
+          })
+          .filter((download): download is PersistedActiveDownload => download !== null);
+        void dependencies.persistActive(downloads).catch(() => {});
+      }, 150);
     }, { deep: true });
   });
 
@@ -392,24 +451,39 @@ const diskUsage = computed(() =>
     completedCount,
     totalSpeed,
     diskUsage,
+    init,
     start,
     restartFromHistory,
     removeHistory,
     cancel,
-    dispose: () => scope.stop(),
+    dispose: () => {
+      if (historyPersistTimer) clearTimeout(historyPersistTimer);
+      if (activePersistTimer) clearTimeout(activePersistTimer);
+      scope.stop();
+    },
   };
 }
 
 const { settings: downloadSettings } = useDownloadSettings();
 const sharedStore = createDownloadStore({
   settings: downloadSettings,
-  loadHistory,
-  persistHistory(tasks) {
-    try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(tasks));
-    } catch {
-      /* ignore quota errors */
+  async loadHistory() {
+    const saved = await getDownloadHistory<DownloadTask>().catch(() => []);
+    if (saved.length > 0) return saved;
+    const legacy = loadHistory();
+    if (legacy.length > 0) {
+      await replaceDownloadHistory(legacy).catch(() => {});
     }
+    return legacy;
+  },
+  async persistHistory(tasks) {
+    await replaceDownloadHistory(tasks);
+  },
+  async loadActive() {
+    return getActiveDownloads<PersistedActiveDownload>();
+  },
+  async persistActive(downloads) {
+    await replaceActiveDownloads(downloads);
   },
 });
 

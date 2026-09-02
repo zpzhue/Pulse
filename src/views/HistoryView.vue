@@ -33,7 +33,7 @@ interface Row {
   format: string;
   type: FileType;
   time: string;
-  status: "completed" | "failed" | "cancelled";
+  status: "completed" | "failed" | "cancelled" | "interrupted";
   /** Finish/create timestamp (for sorting). */
   ts: number;
   /** Directory the file was downloaded into (undefined for legacy records). */
@@ -67,6 +67,7 @@ const STATUS_TEXT: Record<Row["status"], string> = {
   completed: "已完成",
   failed: "失败",
   cancelled: "已取消",
+  interrupted: "已中断",
 };
 
 const records = computed<Row[]>(() =>
@@ -80,7 +81,13 @@ const records = computed<Row[]>(() =>
     format: t.format.toUpperCase(),
     type: t.kind === "audio" ? "audio" : "video",
     time: timeAgo(t.finishedAt ?? t.createdAt),
-    status: t.status === "completed" ? "completed" : t.status === "cancelled" ? "cancelled" : "failed",
+    status: t.status === "completed"
+      ? "completed"
+      : t.status === "cancelled"
+        ? "cancelled"
+        : t.status === "interrupted"
+          ? "interrupted"
+          : "failed",
     ts: t.finishedAt ?? t.createdAt,
     downloadPath: t.downloadPath,
   })),
@@ -155,6 +162,7 @@ async function openFolderFromMenu(row: Row) {
 function statusIcon(status: Row["status"]) {
   if (status === "completed") return CheckCircle2;
   if (status === "cancelled") return Ban;
+  if (status === "interrupted") return CircleX;
   return CircleX;
 }
 
@@ -273,7 +281,7 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
               </span>
               <div class="relative flex items-center justify-end gap-1">
                 <button
-                  v-if="row.status === 'failed'"
+                  v-if="row.status === 'failed' || row.status === 'interrupted'"
                   type="button"
                   class="hd-icon-btn"
                   aria-label="重新下载"
@@ -476,7 +484,8 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
   color: var(--state-error);
 }
 
-.hd-status.cancelled {
+.hd-status.cancelled,
+.hd-status.interrupted {
   color: var(--state-warning);
 }
 

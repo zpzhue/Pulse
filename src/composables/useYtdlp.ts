@@ -8,6 +8,7 @@ import {
   setBinary,
   setManualBinary,
   clearBinaryOverride,
+  initYtdlpSettings,
 } from "../services/ytdlp";
 
 export type YtDlpStatus = "checking" | "installed" | "missing" | "invalid";
@@ -50,10 +51,12 @@ async function runDetection() {
 }
 
 /** Side-effect free init — call once from a component onMounted. */
-function init() {
+async function init() {
   if (initialized || typeof window === "undefined") return;
   initialized = true;
-  void runDetection();
+  await initYtdlpSettings();
+  path.value = getBinary();
+  await runDetection();
 }
 
 /** Apply a user-supplied custom binary path (marks it as manual). */

@@ -3,22 +3,43 @@ import { nextTick } from "vue";
 
 const STORAGE_KEY = "pulse.download-settings";
 
+const storage = vi.hoisted(() => ({
+  values: new Map<string, unknown>(),
+  getSetting: vi.fn(async (key: string) => storage.values.get(key) ?? null),
+  setSetting: vi.fn(async (key: string, value: unknown) => {
+    storage.values.set(key, value);
+  }),
+}));
+
+vi.mock("../services/storage", () => ({
+  getSetting: storage.getSetting,
+  setSetting: storage.setSetting,
+}));
+
 async function loadSettings(saved?: unknown) {
   vi.resetModules();
-  localStorage.clear();
-  if (saved !== undefined) localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+  storage.values.clear();
+  storage.getSetting.mockClear();
+  storage.setSetting.mockClear();
+  if (saved !== undefined) storage.values.set(STORAGE_KEY, saved);
   return import("./useDownloadSettings");
 }
 
+async function flushPersistence() {
+  await nextTick();
+  await new Promise((resolve) => setTimeout(resolve, 175));
+}
+
 afterEach(() => {
-  localStorage.clear();
+  storage.values.clear();
   vi.resetModules();
 });
 
 describe("useDownloadSettings", () => {
   it("uses safe defaults when storage is empty", async () => {
     const { useDownloadSettings } = await loadSettings();
-    const { settings } = useDownloadSettings();
+    const { settings, init } = useDownloadSettings();
+    await init();
 
     expect(settings.concurrent).toBe(3);
     expect(settings.resumeEnabled).toBe(true);
@@ -35,7 +56,8 @@ describe("useDownloadSettings", () => {
       retryCount: 101,
       resumeEnabled: "yes",
     });
-    const { settings } = useDownloadSettings();
+    const { settings, init } = useDownloadSettings();
+    await init();
 
     expect(settings.quality).toBe("best");
     expect(settings.format).toBe("MP4");
@@ -45,19 +67,20 @@ describe("useDownloadSettings", () => {
     expect(settings.resumeEnabled).toBe(true);
   });
 
-  it("persists updated settings", async () => {
+  it("persists updated settings through SQLite storage", async () => {
     const { useDownloadSettings } = await loadSettings();
-    const { settings } = useDownloadSettings();
+    const { settings, init } = useDownloadSettings();
+    await init();
 
     settings.concurrent = 2;
     settings.rateLimitEnabled = true;
     settings.rateLimitKiB = 512;
-    await nextTick();
+    await flushPersistence();
 
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}")).toMatchObject({
+    expect(storage.setSetting).toHaveBeenLastCalledWith(STORAGE_KEY, expect.objectContaining({
       concurrent: 2,
       rateLimitEnabled: true,
       rateLimitKiB: 512,
-    });
+    }));
   });
 });

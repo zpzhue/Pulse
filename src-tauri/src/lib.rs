@@ -1,9 +1,11 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod storage;
 mod ytdlp;
 
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::Manager;
@@ -22,6 +24,10 @@ type DownloadTasks = Arc<Mutex<HashMap<String, ManagedTask>>>;
 
 struct DownloadManager {
     tasks: DownloadTasks,
+}
+
+struct AppState {
+    storage: storage::AppStorage,
 }
 
 impl DownloadManager {
@@ -107,9 +113,71 @@ fn update_ytdlp(binary: Option<String>) -> Result<String, String> {
     ytdlp::update(binary)
 }
 
+#[tauri::command]
+fn get_setting(key: String, state: tauri::State<'_, AppState>) -> Result<Option<Value>, String> {
+    state.storage.get_setting(&key)
+}
+
+#[tauri::command]
+fn set_setting(key: String, value: Value, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.storage.set_setting(&key, &value)
+}
+
+#[tauri::command]
+fn delete_setting(key: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.storage.delete_setting(&key)
+}
+
+#[tauri::command]
+fn get_download_history(state: tauri::State<'_, AppState>) -> Result<Vec<Value>, String> {
+    state.storage.list_history()
+}
+
+#[tauri::command]
+fn replace_download_history(tasks: Vec<Value>, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.storage.replace_history(&tasks)
+}
+
+#[tauri::command]
+fn get_active_downloads(state: tauri::State<'_, AppState>) -> Result<Vec<Value>, String> {
+    state.storage.list_active_downloads()
+}
+
+#[tauri::command]
+fn replace_active_downloads(downloads: Vec<Value>, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.storage.replace_active_downloads(&downloads)
+}
+
+#[cfg(all(target_os = "windows", feature = "portable"))]
+fn database_path(_app: &tauri::App) -> Result<PathBuf, String> {
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("无法定位便携版可执行文件：{error}"))?;
+    let directory = executable
+        .parent()
+        .ok_or_else(|| "无法确定便携版可执行文件目录".to_string())?;
+    Ok(directory.join("pulse.db"))
+}
+
+#[cfg(not(all(target_os = "windows", feature = "portable")))]
+fn database_path(app: &tauri::App) -> Result<PathBuf, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法定位应用数据目录：{error}"))?;
+    std::fs::create_dir_all(&app_data_dir)
+        .map_err(|error| format!("无法创建应用数据目录（{}）：{error}", app_data_dir.display()))?;
+    Ok(app_data_dir.join("pulse.db"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            let path = database_path(app)?;
+            let storage = storage::AppStorage::open(&path).map_err(std::io::Error::other)?;
+            app.manage(AppState { storage });
+            Ok(())
+        })
         .manage(DownloadManager::new())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -123,7 +191,14 @@ pub fn run() {
             detect_ytdlp,
             detect_ffmpeg,
             check_ffmpeg,
-            update_ytdlp
+            update_ytdlp,
+            get_setting,
+            set_setting,
+            delete_setting,
+            get_download_history,
+            replace_download_history,
+            get_active_downloads,
+            replace_active_downloads
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -1,4 +1,5 @@
 import { reactive, watch } from "vue";
+import { getSetting, setSetting } from "../services/storage";
 
 export interface DownloadSettings {
   downloadPath: string;
@@ -66,47 +67,67 @@ function concurrentSetting(value: unknown): number {
   return integerSetting(value, defaults.concurrent, 1, 10);
 }
 
-function load(): DownloadSettings {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
-    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return { ...defaults };
-    const value = saved as Record<string, unknown>;
-    const format = typeof value.format === "string" && supportedFormats.has(value.format)
-      ? value.format
-      : defaults.format;
+function normalize(value: unknown): DownloadSettings {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { ...defaults };
+  const saved = value as Record<string, unknown>;
+  const format = typeof saved.format === "string" && supportedFormats.has(saved.format)
+    ? saved.format
+    : defaults.format;
 
-    return {
-      downloadPath: stringSetting(value.downloadPath, defaults.downloadPath),
-      quality: normalizeQuality(value.quality),
-      format,
-      filenameTemplate: stringSetting(value.filenameTemplate, defaults.filenameTemplate),
-      proxyEnabled: typeof value.proxyEnabled === "boolean" ? value.proxyEnabled : defaults.proxyEnabled,
-      proxyUrl: stringSetting(value.proxyUrl, defaults.proxyUrl),
-      concurrent: concurrentSetting(value.concurrent),
-      rateLimitEnabled: typeof value.rateLimitEnabled === "boolean" ? value.rateLimitEnabled : defaults.rateLimitEnabled,
-      rateLimitKiB: integerSetting(value.rateLimitKiB, defaults.rateLimitKiB, 0, 10_000_000),
-      resumeEnabled: typeof value.resumeEnabled === "boolean" ? value.resumeEnabled : defaults.resumeEnabled,
-      retryCount: integerSetting(value.retryCount, defaults.retryCount, 0, 100),
-      cookieEnabled: typeof value.cookieEnabled === "boolean" ? value.cookieEnabled : defaults.cookieEnabled,
-      cookiePath: stringSetting(value.cookiePath, defaults.cookiePath),
-      removePartialFiles: typeof value.removePartialFiles === "boolean" ? value.removePartialFiles : defaults.removePartialFiles,
-      ffmpegPath: stringSetting(value.ffmpegPath, defaults.ffmpegPath),
-    };
+  return {
+    downloadPath: stringSetting(saved.downloadPath, defaults.downloadPath),
+    quality: normalizeQuality(saved.quality),
+    format,
+    filenameTemplate: stringSetting(saved.filenameTemplate, defaults.filenameTemplate),
+    proxyEnabled: typeof saved.proxyEnabled === "boolean" ? saved.proxyEnabled : defaults.proxyEnabled,
+    proxyUrl: stringSetting(saved.proxyUrl, defaults.proxyUrl),
+    concurrent: concurrentSetting(saved.concurrent),
+    rateLimitEnabled: typeof saved.rateLimitEnabled === "boolean" ? saved.rateLimitEnabled : defaults.rateLimitEnabled,
+    rateLimitKiB: integerSetting(saved.rateLimitKiB, defaults.rateLimitKiB, 0, 10_000_000),
+    resumeEnabled: typeof saved.resumeEnabled === "boolean" ? saved.resumeEnabled : defaults.resumeEnabled,
+    retryCount: integerSetting(saved.retryCount, defaults.retryCount, 0, 100),
+    cookieEnabled: typeof saved.cookieEnabled === "boolean" ? saved.cookieEnabled : defaults.cookieEnabled,
+    cookiePath: stringSetting(saved.cookiePath, defaults.cookiePath),
+    removePartialFiles: typeof saved.removePartialFiles === "boolean" ? saved.removePartialFiles : defaults.removePartialFiles,
+    ffmpegPath: stringSetting(saved.ffmpegPath, defaults.ffmpegPath),
+  };
+}
+
+function readLegacy(): unknown {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
   } catch {
-    return { ...defaults };
+    return {};
   }
 }
 
-const settings = reactive<DownloadSettings>(load());
+const settings = reactive<DownloadSettings>({ ...defaults });
+let initialized = false;
+let suppressPersist = false;
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
 
 watch(settings, (value) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-  } catch {
-    // Storage failures do not prevent a download from starting.
-  }
+  if (suppressPersist || !initialized) return;
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    void setSetting(STORAGE_KEY, { ...value }).catch(() => {});
+  }, 150);
 }, { deep: true });
 
+async function init(): Promise<void> {
+  if (initialized) return;
+  const saved = await getSetting<unknown>(STORAGE_KEY).catch(() => null);
+  const next = saved ?? readLegacy();
+  suppressPersist = true;
+  Object.assign(settings, normalize(next));
+  suppressPersist = false;
+  initialized = true;
+
+  if (saved === null) {
+    await setSetting(STORAGE_KEY, { ...settings }).catch(() => {});
+  }
+}
+
 export function useDownloadSettings() {
-  return { settings };
+  return { settings, init };
 }

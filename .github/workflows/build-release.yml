@@ -26,6 +26,7 @@ jobs:
             target: ""
             artifact: Pulse-windows-x86_64
             bundle-path: src-tauri/target/release/bundle
+            portable-target-dir: src-tauri/target-portable
 
     steps:
       - name: Check out source
@@ -48,12 +49,20 @@ jobs:
         with:
           args: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
 
+      - name: Build portable Windows application
+        if: runner.os == 'Windows'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          CARGO_TARGET_DIR: ${{ matrix.portable-target-dir }}
+        with:
+          args: --features portable --bundles none
+
       - name: Package portable Windows app
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path portable/Pulse | Out-Null
-          Copy-Item src-tauri/target/release/pulse-shell.exe portable/Pulse/Pulse.exe
+          Copy-Item ${{ matrix.portable-target-dir }}/release/pulse-shell.exe portable/Pulse/Pulse.exe
           Compress-Archive -Path portable/Pulse/* -DestinationPath Pulse-windows-x86_64-portable.zip
 
       - name: Upload portable Windows app

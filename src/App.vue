@@ -4,8 +4,14 @@ import { TriangleAlert, Download, FolderSearch } from "lucide-vue-next";
 import AppSidebar from "./components/layout/AppSidebar.vue";
 import AppTopbar from "./components/layout/AppTopbar.vue";
 import { useYtdlp } from "./composables/useYtdlp";
+import { useDownloadSettings } from "./composables/useDownloadSettings";
+import { useDownloads } from "./composables/useDownloads";
+import { useTheme } from "./composables/useTheme";
 
 const { status: ytdlpStatus, path: ytdlpPath, init, setManual, downloadYtdlp } = useYtdlp();
+const { init: initDownloadSettings } = useDownloadSettings();
+const { init: initDownloads } = useDownloads();
+const { init: initTheme } = useTheme();
 const showDialog = ref(false);
 const customPath = ref("");
 
@@ -21,7 +27,12 @@ async function applyPath() {
   await setManual(path);
 }
 
-onMounted(() => init());
+onMounted(() => {
+  void initTheme();
+  void initDownloadSettings();
+  void initDownloads();
+  void init();
+});
 </script>
 
 <template>

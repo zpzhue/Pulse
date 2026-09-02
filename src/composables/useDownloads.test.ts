@@ -43,8 +43,10 @@ function createStore() {
   const settings = reactive(baseDownloadSettings());
   const store = createDownloadStore({
     settings,
-    loadHistory: () => [],
-    persistHistory: () => {},
+    loadHistory: async () => [],
+    persistHistory: async () => {},
+    loadActive: async () => [],
+    persistActive: async () => {},
   });
   stores.push(store);
   return { settings, store };
@@ -80,6 +82,47 @@ describe("useDownloads", () => {
     expect(downloads.activeCount.value).toBe(1);
     expect(downloads.queuedCount.value).toBe(0);
     expect(downloads.history.value).toHaveLength(1);
+  });
+
+  it("moves unfinished recovered tasks into interrupted history", async () => {
+    const settings = reactive(baseDownloadSettings());
+    const recovered = {
+      task: {
+        id: "interrupted-task",
+        title: "interrupted",
+        url: "https://example.test/interrupted",
+        kind: "video" as const,
+        format: "mp4",
+        status: "downloading" as const,
+        percent: 42,
+        downloadedBytes: 1024,
+        totalBytes: 2048,
+        speed: 100,
+        eta: 10,
+        createdAt: 1,
+      },
+      spec,
+    };
+    const persistActive = vi.fn(async () => {});
+    const downloads = createDownloadStore({
+      settings,
+      loadHistory: async () => [],
+      persistHistory: async () => {},
+      loadActive: async () => [recovered],
+      persistActive,
+    });
+    stores.push(downloads);
+
+    await downloads.init();
+
+    expect(downloads.active.value).toHaveLength(0);
+    expect(downloads.history.value).toHaveLength(1);
+    expect(downloads.history.value[0]).toMatchObject({
+      id: "interrupted-task",
+      status: "interrupted",
+      error: "应用上次退出时下载未完成",
+    });
+    expect(persistActive).toHaveBeenCalledWith([]);
   });
 
   it("removes a queued task when cancelled without calling yt-dlp", async () => {

@@ -2,6 +2,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
 import { readText as clipboardReadText } from "@tauri-apps/plugin-clipboard-manager";
 import { openPath } from "@tauri-apps/plugin-opener";
+import { deleteSetting, getSetting, setSetting } from "./storage";
 
 /** Resolved URL metadata returned by the Rust `resolve_url` command. */
 export interface ResolveResult {
@@ -10,17 +11,8 @@ export interface ResolveResult {
   title: string;
   uploader: string;
   count: number;
-  /**
-   * Present for playlists. Callers must still treat this as optional and
-   * default to [].
-   */
   entries?: PlaylistEntry[];
-  /** Total duration in seconds for single videos; null otherwise. */
   duration?: number | null;
-  /**
-   * Selectable video streams (video-only, sorted by resolution) for a
-   * single video; empty for playlists. Optional for old-backend tolerance.
-   */
   formats?: VideoFormatOption[];
 }
 
@@ -28,20 +20,15 @@ export interface PlaylistEntry {
   id: string;
   title: string;
   duration: number | null;
-  /** Watch URL of this entry, for per-row downloads. */
   url?: string;
 }
 
-/** One selectable video stream of a resolved single video. */
 export interface VideoFormatOption {
   formatId: string;
-  /** Container/extension reported by yt-dlp (mp4, webm, ...). */
   ext: string;
   width: number | null;
   height: number | null;
-  /** Exact size when known, else approximate; null when unknown. */
   filesize: number | null;
-  /** True when the stream carries no audio track (+bestaudio needed). */
   videoOnly: boolean;
 }
 
@@ -55,9 +42,7 @@ export interface DownloadOptions {
   filenameTemplate: string;
   subtitles: boolean;
   thumbnail: boolean;
-  /** Row-selected yt-dlp format id; absent → yt-dlp default selection. */
   formatId?: string;
-  /** Whether the picked format lacks an audio track (+bestaudio needed). */
   videoOnly?: boolean;
   proxy?: string;
   playlistItems?: number[];
@@ -66,7 +51,6 @@ export interface DownloadOptions {
   removePartialFiles?: boolean;
   retries?: number;
   cookiePath?: string;
-  /** User-configured ffmpeg binary path or directory; overrides detection. */
   ffmpegPath?: string;
 }
 
@@ -80,28 +64,50 @@ export interface ProgressEvent {
   totalBytes?: number;
   speed?: number;
   eta?: number;
-  /** Playlist progress: 1-based index of the item now downloading. */
   playlistIndex?: number;
   playlistTotal?: number;
   message?: string;
 }
 
 const BINARY_KEY = "pulse.ytdlp.binary";
+const BINARY_SOURCE_KEY = "pulse.ytdlp.source";
+
+export type BinarySource = "auto" | "manual";
+
+let binary = "yt-dlp";
+let binarySource: BinarySource = "auto";
+let initialized = false;
+
+function readLegacy(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+export async function initYtdlpSettings(): Promise<void> {
+  if (initialized) return;
+  const [savedBinary, savedSource] = await Promise.all([
+    getSetting<string>(BINARY_KEY).catch(() => null),
+    getSetting<BinarySource>(BINARY_SOURCE_KEY).catch(() => null),
+  ]);
+  binary = savedBinary || readLegacy(BINARY_KEY) || "yt-dlp";
+  binarySource = savedSource === "manual" || readLegacy(BINARY_SOURCE_KEY) === "manual" ? "manual" : "auto";
+  initialized = true;
+
+  if (savedBinary === null && binary !== "yt-dlp") void setSetting(BINARY_KEY, binary).catch(() => {});
+  if (savedSource === null && binarySource === "manual") void setSetting(BINARY_SOURCE_KEY, binarySource).catch(() => {});
+}
 
 /** Ask the user to pick a directory; resolves null when cancelled. */
 export async function chooseDirectory(startPath?: string): Promise<string | null> {
-  const selection = await dialogOpen({
-    directory: true,
-    multiple: false,
-    defaultPath: startPath || undefined,
-  });
+  const selection = await dialogOpen({ directory: true, multiple: false, defaultPath: startPath || undefined });
   return typeof selection === "string" ? selection : null;
 }
 
 /** Ask the user to pick a file; resolves null when cancelled. */
-export async function chooseFile(
-  filters?: { name: string; extensions: string[] }[],
-): Promise<string | null> {
+export async function chooseFile(filters?: { name: string; extensions: string[] }[]): Promise<string | null> {
   const selection = await dialogOpen({ multiple: false, filters });
   return typeof selection === "string" ? selection : null;
 }
@@ -121,110 +127,64 @@ export async function readClipboardText(): Promise<string | null> {
   }
 }
 
-/** Current yt-dlp binary path (mirrors the settings page, persisted). */
 export function getBinary(): string {
-  try {
-    return localStorage.getItem(BINARY_KEY) || "yt-dlp";
-  } catch {
-    return "yt-dlp";
-  }
+  return binary;
 }
 
 export function setBinary(path: string): void {
-  try {
-    localStorage.setItem(BINARY_KEY, path || "yt-dlp");
-  } catch {
-    /* ignore */
-  }
+  binary = path || "yt-dlp";
+  void setSetting(BINARY_KEY, binary).catch(() => {});
 }
 
-const BINARY_SOURCE_KEY = "pulse.ytdlp.source";
-
-export type BinarySource = "auto" | "manual";
-
-/** Whether the current binary was auto-detected or set manually by the user. */
 export function getBinarySource(): BinarySource {
-  try {
-    return localStorage.getItem(BINARY_SOURCE_KEY) === "manual" ? "manual" : "auto";
-  } catch {
-    return "auto";
-  }
+  return binarySource;
 }
 
-/** Persist a user-supplied manual binary path (marks it as manual). */
 export function setManualBinary(path: string): void {
   setBinary(path);
-  try {
-    localStorage.setItem(BINARY_SOURCE_KEY, "manual");
-  } catch {
-    /* ignore */
-  }
+  binarySource = "manual";
+  void setSetting(BINARY_SOURCE_KEY, binarySource).catch(() => {});
 }
 
-/** Clears any manual override so detection is used again on next launch. */
 export function clearBinaryOverride(): void {
-  try {
-    localStorage.removeItem(BINARY_KEY);
-    localStorage.removeItem(BINARY_SOURCE_KEY);
-  } catch {
-    /* ignore */
-  }
+  binary = "yt-dlp";
+  binarySource = "auto";
+  void Promise.all([deleteSetting(BINARY_KEY), deleteSetting(BINARY_SOURCE_KEY)]).catch(() => {});
 }
 
-/** Probe common locations / PATH for a working yt-dlp. */
 export function detectYtdlp(): Promise<{ path: string; version: string } | null> {
   return invoke<{ path: string; version: string } | null>("detect_ytdlp");
 }
 
-/** Probe common locations / PATH for a working ffmpeg (+ ffprobe). */
 export function detectFfmpeg(): Promise<{ path: string; version: string } | null> {
   return invoke<{ path: string; version: string } | null>("detect_ffmpeg");
 }
 
-/** Verify a user-configured ffmpeg location (binary or directory). */
 export function checkFfmpeg(path?: string): Promise<string> {
   return invoke<string>("check_ffmpeg", { path: path?.trim() || null });
 }
 
-/** Resolve a URL to metadata / playlist entries (proxy/cookie mirror downloads). */
-export function resolveUrl(
-  url: string,
-  options?: { proxy?: string; cookiePath?: string },
-): Promise<ResolveResult> {
+export function resolveUrl(url: string, options?: { proxy?: string; cookiePath?: string }): Promise<ResolveResult> {
   return invoke<ResolveResult>("resolve_url", {
-    req: {
-      url,
-      binary: getBinary(),
-      proxy: options?.proxy || undefined,
-      cookiePath: options?.cookiePath || undefined,
-    },
+    req: { url, binary: getBinary(), proxy: options?.proxy || undefined, cookiePath: options?.cookiePath || undefined },
   });
 }
 
-/** Check the configured yt-dlp binary is reachable and return its version. */
-export function checkVersion(binary?: string): Promise<string> {
-  return invoke<string>("ytdlp_version", { binary: binary ?? getBinary() });
+export function checkVersion(binaryPath?: string): Promise<string> {
+  return invoke<string>("ytdlp_version", { binary: binaryPath ?? getBinary() });
 }
 
-/** Update the current standalone yt-dlp executable after user confirmation. */
-export function updateYtdlp(binary: string): Promise<string> {
-  return invoke<string>("update_ytdlp", { binary });
+export function updateYtdlp(binaryPath: string): Promise<string> {
+  return invoke<string>("update_ytdlp", { binary: binaryPath });
 }
 
-/** Stop a running download task managed by the Rust backend. */
 export function cancelDownload(taskId: string): Promise<void> {
   return invoke<void>("cancel_download", { taskId });
 }
 
-/** Start a download and resolve after the managed process is spawned. */
-export async function startDownload(
-  options: DownloadOptions,
-  onEvent?: (ev: ProgressEvent) => void,
-): Promise<void> {
+export async function startDownload(options: DownloadOptions, onEvent?: (ev: ProgressEvent) => void): Promise<void> {
   const channel = new Channel<ProgressEvent>();
-  if (onEvent) {
-    channel.onmessage = onEvent;
-  }
+  if (onEvent) channel.onmessage = onEvent;
   await invoke<string>("start_download", {
     req: {
       taskId: options.taskId,
@@ -244,7 +204,7 @@ export async function startDownload(
       removePartialFiles: options.removePartialFiles ?? false,
       retries: options.retries ?? 3,
       cookiePath: options.cookiePath ?? undefined,
-      ffmpegLocation: options.ffmpegPath?.trim() || undefined,
+      ffmpegLocation: options.ffmpegPath ?? undefined,
       binary: getBinary(),
     },
     onEvent: channel,
