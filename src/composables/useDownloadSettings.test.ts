@@ -16,6 +16,18 @@ vi.mock("../services/storage", () => ({
   setSetting: storage.setSetting,
 }));
 
+const platform = vi.hoisted(() => ({
+  downloadDir: vi.fn(async (): Promise<string> => "/home/u/Downloads"),
+  homeDir: vi.fn(async (): Promise<string> => "/home/u"),
+  sep: vi.fn((): string => "/"),
+}));
+
+vi.mock("@tauri-apps/api/path", () => ({
+  downloadDir: platform.downloadDir,
+  homeDir: platform.homeDir,
+  sep: platform.sep,
+}));
+
 async function loadSettings(saved?: unknown) {
   vi.resetModules();
   storage.values.clear();
@@ -65,6 +77,46 @@ describe("useDownloadSettings", () => {
     expect(settings.rateLimitKiB).toBe(0);
     expect(settings.retryCount).toBe(3);
     expect(settings.resumeEnabled).toBe(true);
+  });
+
+  it("collapses the legacy `~` default to the unset sentinel and rewrites it once", async () => {
+    const { useDownloadSettings } = await loadSettings({
+      downloadPath: "~/Downloads/Pulse/",
+      quality: "1080p",
+      format: "MP4",
+      concurrent: 3,
+    });
+    const { settings, init, downloadPathInput } = useDownloadSettings();
+    await init();
+
+    // 库里不再保留 `~/...` 字面量；显示值走实时解析的真实目录。
+    expect(settings.downloadPath).toBe("");
+    expect(downloadPathInput.value).toBe("/home/u/Downloads/Pulse");
+    expect(storage.setSetting).toHaveBeenLastCalledWith(
+      STORAGE_KEY,
+      expect.objectContaining({ downloadPath: "" }),
+    );
+  });
+
+  it("never persists a download path that equals the resolved default", async () => {
+    const { useDownloadSettings } = await loadSettings();
+    const { settings, init, downloadPathInput } = useDownloadSettings();
+    await init();
+
+    downloadPathInput.value = "/home/u/Downloads/Pulse";
+    expect(settings.downloadPath).toBe("");
+
+    downloadPathInput.value = "  D:\\Media\\Pulse  ";
+    expect(settings.downloadPath).toBe("D:\\Media\\Pulse");
+    await flushPersistence();
+    expect(storage.setSetting).toHaveBeenLastCalledWith(
+      STORAGE_KEY,
+      expect.objectContaining({ downloadPath: "D:\\Media\\Pulse" }),
+    );
+
+    // 清空输入 = 回到未设置态（实时默认目录），而不是空字符串被当成路径。
+    downloadPathInput.value = "";
+    expect(settings.downloadPath).toBe("");
   });
 
   it("persists updated settings through SQLite storage", async () => {

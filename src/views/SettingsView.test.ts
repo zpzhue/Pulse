@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
-import { reactive } from "vue";
+import { computed, reactive } from "vue";
 
 const settings = reactive({
   downloadPath: "/tmp",
@@ -20,8 +20,18 @@ const settings = reactive({
   ffmpegPath: "",
 });
 
+/** 镜像 useDownloadSettings 的写入口：等于默认目录时折叠回 ""（不落库）。 */
+const defaultDownloadPath = "/fake/Downloads/Pulse";
+const downloadPathInput = computed<string>({
+  get: () => settings.downloadPath || defaultDownloadPath,
+  set: (value) => {
+    const trimmed = value.trim();
+    settings.downloadPath = !trimmed || trimmed === defaultDownloadPath ? "" : trimmed;
+  },
+});
+
 vi.mock("../composables/useDownloadSettings", () => ({
-  useDownloadSettings: () => ({ settings }),
+  useDownloadSettings: () => ({ settings, downloadPathInput }),
 }));
 
 vi.mock("../composables/useTheme", () => ({

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   Palette,
   Download,
@@ -36,15 +37,16 @@ const navItems: { key: PanelKey; icon: typeof Palette; label: string }[] = [
 const density = ref("标准");
 
 /* ---- 下载设置 ---- */
-const { settings: downloadSettings } = useDownloadSettings();
+const { settings: downloadSettings, downloadPathInput } = useDownloadSettings();
 
 /* ---- yt-dlp 配置 ---- */
 const ytdlpPath = ref(getBinary());
 
 /** Pick the default download directory. */
 async function browseDownloadPath() {
-  const dir = await chooseDirectory(downloadSettings.downloadPath);
-  if (dir) downloadSettings.downloadPath = dir;
+  const dir = await chooseDirectory(downloadPathInput.value);
+  // 经 downloadPathInput 赋值：选到与默认目录相同的路径时不会落库。
+  if (dir) downloadPathInput.value = dir;
 }
 
 /** Pick the yt-dlp binary (any file; executability is checked on save). */
@@ -145,7 +147,13 @@ async function confirmAndUpdate() {
     ytdlpUpdateStatus.value = "路径不能为空";
     return;
   }
-  if (!window.confirm("将使用 yt-dlp 内置更新程序检查并更新当前二进制。更新失败时将保留现有版本。是否继续？")) return;
+  // 原生 window.confirm 在桌面端不可用（WKWebView 下直接返回 false，导致
+  // 这个按钮在 macOS 上永远走不下去），改用 dialog 插件的原生确认框。
+  const confirmed = await confirm(
+    "将使用 yt-dlp 内置更新程序检查并更新当前二进制。更新失败时将保留现有版本。是否继续？",
+    { title: "更新 yt-dlp", kind: "warning" },
+  );
+  if (!confirmed) return;
 
   ytdlpUpdating.value = true;
   ytdlpUpdateStatus.value = "";
@@ -288,14 +296,25 @@ async function confirmAndUpdate() {
         </div>
 
         <div class="st-item">
-          <label class="st-label-above">下载路径</label>
+          <label class="st-label-above" for="download-path-input">下载路径</label>
           <div class="flex gap-2">
-            <input v-model="downloadSettings.downloadPath" type="text" class="st-input flex-1 font-mono" />
+            <input
+              id="download-path-input"
+              v-model="downloadPathInput"
+              type="text"
+              class="st-input flex-1 font-mono"
+              placeholder="留空则使用系统下载目录下的 Pulse"
+            />
             <button type="button" class="st-btn-browse" @click="browseDownloadPath">
               <Folder class="w-3.5 h-3.5" />
               <span>浏览</span>
             </button>
           </div>
+          <p class="mt-2 text-[12px] text-muted-foreground">
+            {{ downloadSettings.downloadPath
+              ? "已自定义为该绝对路径；清空后回到默认的「系统下载目录/Pulse」。"
+              : `使用默认目录：${downloadPathInput || "系统下载目录/Pulse"}（跟随系统下载位置，不会写死到配置里）。` }}
+          </p>
         </div>
 
         <div class="st-item">

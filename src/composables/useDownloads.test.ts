@@ -166,6 +166,28 @@ describe("useDownloads", () => {
     expect(downloads.activeCount.value).toBe(1);
     expect(downloads.queuedCount.value).toBe(1);
   });
+
+  it("forwards an absolute download dir to the backend untouched", async () => {
+    const { store: downloads } = createStore();
+    await downloads.start({ ...spec, downloadPath: "/srv/media" });
+    await flushQueue();
+
+    expect(mocks.startDownload).toHaveBeenCalledTimes(1);
+    expect(mocks.startDownload.mock.calls[0]?.[0]).toMatchObject({ downloadPath: "/srv/media" });
+  });
+
+  it("fails the task instead of sending a `~` path to the backend", async () => {
+    const { store: downloads } = createStore();
+    const task = await downloads.start({ ...spec, downloadPath: "~/Downloads/Pulse/" });
+    await flushQueue();
+
+    // 非 Tauri 环境解析不到真实目录时，宁可显式失败，也不能把 `~/...` 交给
+    // yt-dlp 的 expand_path（Windows 上会落到幽灵目录且 UI 仍显示"已完成"）。
+    expect(mocks.startDownload).not.toHaveBeenCalled();
+    expect(task.status).toBe("failed");
+    expect(task.downloadPath).toBe("");
+    expect(task.error).toContain("下载目录");
+  });
 });
 
 describe("normalizedPercent", () => {

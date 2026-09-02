@@ -6,6 +6,7 @@ import {
   type DownloadOptions,
 } from "../services/ytdlp";
 import { useDownloadSettings, type DownloadSettings } from "./useDownloadSettings";
+import { effectiveDownloadPath, initKnownPaths, normalizeStoredPath } from "../services/paths";
 import {
   getActiveDownloads,
   getDownloadHistory,
@@ -177,16 +178,24 @@ export function createDownloadStore(dependencies: DownloadStoreDependencies) {
   let historyPersistTimer: ReturnType<typeof setTimeout> | undefined;
   let activePersistTimer: ReturnType<typeof setTimeout> | undefined;
 
+  /** 读库侧一次性清洗：把老数据里的 `~/...` 展开成等价真实路径。 */
+  function normalizeTaskPath(task: DownloadTask): DownloadTask {
+    if (typeof task.downloadPath !== "string") return task;
+    return { ...task, downloadPath: normalizeStoredPath(task.downloadPath) };
+  }
+
   async function init(): Promise<void> {
     if (initialized) return;
+    // 先解析真实目录，才能把库里存的 `~/...` 老值展开成等价路径。
+    await initKnownPaths();
     const [savedHistory, recovered] = await Promise.all([
       dependencies.loadHistory(),
       dependencies.loadActive(),
     ]);
-    history.value = savedHistory.slice(-HISTORY_LIMIT);
+    history.value = savedHistory.slice(-HISTORY_LIMIT).map(normalizeTaskPath);
     for (const { task } of recovered) {
       history.value.push({
-        ...task,
+        ...normalizeTaskPath(task),
         status: "interrupted",
         speed: null,
         eta: null,
@@ -385,7 +394,7 @@ async function restartFromHistory(id: string): Promise<DownloadTask | null> {
     url: record.url,
     kind: record.kind,
     format: record.format,
-    downloadPath: record.downloadPath || settings.downloadPath,
+    downloadPath: effectiveDownloadPath(record.downloadPath) || effectiveDownloadPath(settings.downloadPath),
     quality: settings.quality,
     filenameTemplate: settings.filenameTemplate,
     // Reproduce the original task's choices; legacy records without the
@@ -400,6 +409,10 @@ async function restartFromHistory(id: string): Promise<DownloadTask | null> {
  * Returns the task so callers can follow its status.
  */
 async function start(spec: StartSpec): Promise<DownloadTask> {
+  // 唯一收口点：无论入口是新建下载、批量入队还是「重新下载」，落库与下发的
+  // 目录都在这里规范化成绝对路径，`~/...` 老值与"未设置"哨兵都不会再流到后端
+  // （后端不做 `~` 展开，Windows 上会依赖 yt-dlp 的 expand_path 落到意外目录）。
+  const downloadPath = effectiveDownloadPath(spec.downloadPath);
   const task = reactive<DownloadTask>({
     id: genId(),
     title: spec.title ?? spec.url,
@@ -412,7 +425,7 @@ async function start(spec: StartSpec): Promise<DownloadTask> {
     totalBytes: null,
     speed: null,
     eta: null,
-    downloadPath: spec.downloadPath,
+    downloadPath,
     subtitles: spec.subtitles,
     thumbnail: spec.thumbnail,
     playlistIndex: null,
@@ -420,7 +433,14 @@ async function start(spec: StartSpec): Promise<DownloadTask> {
     createdAt: Date.now(),
   });
   active.value.push(task);
-  pendingSpecs.set(task.id, spec);
+  if (!downloadPath) {
+    task.status = "failed";
+    task.error = "未能确定下载目录（系统下载目录解析失败），请在设置中手动选择下载路径";
+    task.finishedAt = Date.now();
+    moveToHistory(task);
+    return task;
+  }
+  pendingSpecs.set(task.id, { ...spec, downloadPath });
   void drainQueue();
   return task;
 }

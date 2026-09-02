@@ -22,6 +22,7 @@ import {
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useDownloads, formatBytes, formatSpeed, type DownloadTask } from "../composables/useDownloads";
 import { openFolder } from "../services/ytdlp";
+import { normalizeStoredPath } from "../services/paths";
 
 type FileType = "video" | "audio";
 
@@ -106,7 +107,9 @@ const records = computed<Row[]>(() =>
           ? "interrupted"
           : "failed",
     ts: t.finishedAt ?? t.createdAt,
-    downloadPath: t.downloadPath,
+    // 老数据里可能存有 `~/Downloads/Pulse/` 字面量（旧版默认值），读库时展开成
+    // 等价真实路径；没有持久化过目录的记录保持为空 → 按钮继续禁用。
+    downloadPath: normalizeStoredPath(t.downloadPath),
   })),
 );
 
@@ -146,13 +149,32 @@ const paged = computed(() => filtered.value.slice(0, visibleCount.value));
 
 const hasMore = computed(() => filtered.value.length > paged.value.length);
 
+/** 打开目录失败时的可见提示（此前是 `catch {}`，用户完全看不到原因）。 */
+const folderFeedback = ref("");
+let folderFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
+
+function reportFolderError(message: string) {
+  folderFeedback.value = message;
+  if (folderFeedbackTimer) clearTimeout(folderFeedbackTimer);
+  folderFeedbackTimer = setTimeout(() => {
+    folderFeedback.value = "";
+  }, 8000);
+}
+
 /** Reveal the download directory in the system file manager. */
 async function openRecordFolder(row: Row) {
-  if (!row.downloadPath) return;
+  const dir = normalizeStoredPath(row.downloadPath);
+  if (!dir) {
+    reportFolderError("该记录没有可用的下载目录（旧数据未持久化路径），如需再次下载请使用「重新下载」。");
+    return;
+  }
   try {
-    await openFolder(row.downloadPath);
-  } catch {
-    /* opener unavailable — ignore */
+    await openFolder(dir);
+    folderFeedback.value = "";
+  } catch (error) {
+    // opener 会因 ACL scope 不覆盖该路径或目录已不存在而报错，必须显示出来，
+    // 否则表现就是"点了没反应"。
+    reportFolderError(`无法打开下载目录 ${dir}：${String(error)}`);
   }
 }
 
@@ -239,6 +261,15 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
         <div>全部记录</div>
       </div>
     </header>
+
+    <!-- 打开目录失败的可见反馈（替代原先被吞掉的异常） -->
+    <p v-if="folderFeedback" role="alert" class="hd-alert">
+      <CircleX class="h-4 w-4 shrink-0" />
+      <span class="min-w-0 flex-1 break-all">{{ folderFeedback }}</span>
+      <button type="button" class="hd-alert-close" aria-label="关闭提示" @click="folderFeedback = ''">
+        <X class="h-4 w-4" />
+      </button>
+    </p>
 
     <section class="rounded-lg border border-border bg-card p-3 sm:p-4">
       <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -635,6 +666,43 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
 
 .hd-detail-dialog dd {
   min-width: 0;
+}
+
+.hd-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--state-error) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--state-error) 10%, transparent);
+  color: var(--ydl-foreground);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.hd-alert > svg:first-child {
+  color: var(--state-error);
+  margin-top: 1px;
+}
+
+.hd-alert-close {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  color: var(--ydl-muted-foreground);
+  cursor: pointer;
+  background: transparent;
+}
+
+.hd-alert-close:hover {
+  background: var(--ydl-muted);
+  color: var(--ydl-foreground);
 }
 
 @media (max-width: 640px) {

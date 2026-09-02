@@ -8,6 +8,7 @@ use serde_json::json;
 use crate::{DownloadManager, DownloadTasks, ManagedTask};
 use parking_lot::Mutex;
 use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, OnceLock};
 use std::thread;
@@ -17,9 +18,48 @@ const DEFAULT_BINARY: &str = "yt-dlp";
 /// Literal tag emitted by the download progress template (stripped when parsing),
 /// so progress lines are distinguishable from ordinary yt-dlp stdout chatter.
 const PROGRESS_MARKER: &str = "PULSE|";
+/// Spawn console children without handing them a console window.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 fn binary_of(value: &Option<String>) -> &str {
     value.as_deref().filter(|s| !s.is_empty()).unwrap_or(DEFAULT_BINARY)
+}
+
+/// The single entry point for every child process we spawn.
+///
+/// - `stdin` is never inherited, so yt-dlp can never block on an interactive
+///   prompt nobody can see.
+/// - Python is pinned to UTF-8: with stdout redirected into a pipe, CPython falls
+///   back to the system ANSI code page (cp936 on zh-CN Windows), which puts bytes
+///   on the wire that are not valid UTF-8 (audit R1). `--encoding utf-8` fixes the
+///   same thing inside yt-dlp's own writer; the env vars cover pip/uv installs.
+/// - On Windows, `CREATE_NO_WINDOW` stops a console window flashing per child —
+///   a release GUI build has no console for the child to inherit.
+fn configure_command(command: &mut Command) {
+    command
+        .stdin(Stdio::null())
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+}
+
+/// `Command::new(program)` plus [`configure_command`], with a leading `~` expanded.
+fn command_for(program: &str) -> Command {
+    let mut command = Command::new(expand_home(program));
+    configure_command(&mut command);
+    command
+}
+
+/// Decode one line read from a child without ever failing on invalid UTF-8.
+/// Undecodable bytes become replacement characters; the task is *not* aborted
+/// (aborting on them is what killed working downloads on Chinese Windows).
+fn line_text(raw: &[u8]) -> String {
+    String::from_utf8_lossy(raw).into_owned()
 }
 
 /* ------------------------------------------------------------------ */
@@ -85,10 +125,12 @@ pub struct ResolveRequest {
 pub fn resolve(req: ResolveRequest) -> Result<ResolveResult, String> {
     let binary = binary_of(&req.binary);
     let cookie_path = validated_cookie_path(req.cookie_path)?;
-    let mut command = Command::new(binary);
+    let mut command = command_for(binary);
     command
         .arg("--dump-single-json")
         .arg("--no-warnings")
+        .arg("--no-colors")
+        .arg("--encoding").arg("utf-8")
         .arg("--flat-playlist");
     if let Some(proxy) = req.proxy.as_deref().filter(|value| !value.trim().is_empty()) {
         command.arg("--proxy").arg(proxy);
@@ -235,6 +277,11 @@ fn build_args(o: &DownloadOptions, ffmpeg_location: Option<&str>) -> Vec<String>
         "--no-warnings".into(),
         "--no-colors".into(),
         "--console-title".into(),
+        // Force UTF-8 on yt-dlp's own console writer. Without it a piped stdout
+        // uses the system ANSI code page (cp936 on zh-CN Windows) and every
+        // non-ASCII line we read is invalid UTF-8 (audit R1).
+        "--encoding".into(),
+        "utf-8".into(),
     ];
 
     if let Some(p) = o.proxy.as_deref().filter(|s| !s.is_empty()) {
@@ -425,8 +472,12 @@ fn validated_cookie_path(path: Option<String>) -> Result<Option<String>, String>
     let Some(path) = path.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
     };
+    let path = expand_home(&path);
     let canonical = std::fs::canonicalize(&path)
         .map_err(|error| format!("Cookie 文件不可访问（{path}）：{error}"))?;
+    // Windows hands back `\\?\C:\...`; drop the verbatim prefix so the value that
+    // reaches yt-dlp (and any error text the user sees) stays a normal path.
+    let canonical = strip_verbatim(&canonical);
     let metadata = std::fs::metadata(&canonical)
         .map_err(|error| format!("无法读取 Cookie 文件（{}）：{error}", canonical.display()))?;
     if !metadata.is_file() {
@@ -443,6 +494,10 @@ pub fn start_download(
     if o.task_id.trim().is_empty() {
         return Err("下载任务缺少 taskId".to_string());
     }
+    // Expand `~` here rather than letting yt-dlp do it: on Windows its
+    // `compat_expanduser` prefers %HOME% (a third-party shell variable) over
+    // USERPROFILE, which can silently relocate the whole download (audit B5).
+    o.download_path = expand_home(&o.download_path);
     o.cookie_path = validated_cookie_path(o.cookie_path)?;
 
     let task_id = o.task_id.clone();
@@ -453,7 +508,7 @@ pub fn start_download(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
+        .map(expand_home)
         .or_else(ffmpeg_location);
     let args = build_args(&o, ffmpeg.as_deref());
 
@@ -480,7 +535,7 @@ pub fn start_download(
             return Err(format!("下载任务已存在：{task_id}"));
         }
 
-        let mut command = Command::new(binary);
+        let mut command = command_for(binary);
         command
             .args(&args)
             .stdout(Stdio::piped())
@@ -573,30 +628,35 @@ fn run_download(
         let diagnostics = Arc::clone(&diagnostics);
         thread::spawn(move || {
             let mut reader = BufReader::new(stderr);
-            let mut line = String::new();
+            let mut raw: Vec<u8> = Vec::new();
             loop {
-                line.clear();
-                match reader.read_line(&mut line) {
+                raw.clear();
+                match reader.read_until(b'\n', &mut raw) {
                     Ok(0) => break,
-                    Ok(_) => append_diagnostic(&diagnostics, line.trim_end()),
-                    Err(_) => break,
+                    // Deliberately lossy: undecodable bytes must never cut the
+                    // diagnostics short (and must never look like a failure).
+                    Ok(_) => append_diagnostic(&diagnostics, line_text(&raw).trim_end()),
+                    Err(_) => break, // a real I/O error on the pipe
                 }
             }
         })
     };
 
     // Progress template output arrives on stdout, one tagged line per update.
+    // Bytes (not `read_line`) on purpose: a title in the local ANSI code page is
+    // not valid UTF-8, and a decode error must not be mistaken for a dead task.
     let mut reader = BufReader::new(stdout);
-    let mut line = String::new();
+    let mut raw: Vec<u8> = Vec::new();
     let mut last_downloaded: Option<u64> = None;
     let mut last_total: Option<u64> = None;
 
     loop {
-        line.clear();
-        match reader.read_line(&mut line) {
+        raw.clear();
+        match reader.read_until(b'\n', &mut raw) {
             Ok(0) => break,
             Ok(_) => {
-                let trimmed = line.trim_end();
+                let text = line_text(&raw);
+                let trimmed = text.trim_end();
                 if let Some(data) = parse_progress(trimmed) {
                     if let Some(dl) = data.downloaded {
                         last_downloaded = Some(dl);
@@ -614,6 +674,9 @@ fn run_download(
                 }
             }
             Err(error) => {
+                // Only a genuine I/O failure can reach this branch now: reading is
+                // byte-based and decoding is lossy, so an un-UTF-8 title line is
+                // no longer fatal (that path used to kill working downloads).
                 let cleanup_error = stop_and_reap(&child).err();
                 tasks.lock().remove(&task_id);
                 let _ = stderr_reader.join();
@@ -711,10 +774,34 @@ pub(crate) fn kill_process_tree(child: &mut Child) {
     unsafe {
         let _ = libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // Child::kill() is TerminateProcess: it stops yt-dlp.exe only, and the
+        // ffmpeg it spawned keeps writing to disk as an orphan. `taskkill /T /F`
+        // walks the tree - the Windows equivalent of killpg() above.
+        if kill_windows_process_tree(child.id()).is_err() {
+            let _ = child.kill();
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = child.kill();
     }
+}
+
+/// Force-terminate a process *and its descendants* with `taskkill /PID x /T /F`.
+#[cfg(windows)]
+fn kill_windows_process_tree(pid: u32) -> Result<(), String> {
+    let pid = pid.to_string();
+    // Non-zero exit only ever means "no such process" (it already exited), which
+    // is not a failure worth surfacing to the user; a spawn failure is.
+    command_for("taskkill")
+        .args(["/PID", pid.as_str(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|_| ())
+        .map_err(|error| format!("无法调用 taskkill: {error}"))
 }
 
 /* ------------------------------------------------------------------ */
@@ -724,7 +811,7 @@ pub(crate) fn kill_process_tree(child: &mut Child) {
 /// Return the yt-dlp version string (used by the settings "测试连接" flow).
 pub fn version(binary: Option<String>) -> Result<String, String> {
     let binary = binary_of(&binary);
-    let output = Command::new(binary)
+    let output = command_for(binary)
         .arg("--version")
         .output()
         .map_err(|e| format!("无法启动 yt-dlp（{}）: {e}", binary))?;
@@ -768,7 +855,7 @@ fn verified_update_binary(binary: Option<String>) -> Result<String, String> {
 /// Run yt-dlp's built-in update command after explicit user confirmation.
 pub fn update(binary: Option<String>) -> Result<String, String> {
     let binary = verified_update_binary(binary)?;
-    let output = Command::new(&binary)
+    let output = command_for(&binary)
         .arg("--update")
         .output()
         .map_err(|e| format!("无法启动 yt-dlp 更新（{}）: {e}", binary))?;
@@ -794,15 +881,211 @@ pub struct Detection {
     pub version: String,
 }
 
-fn home_dir() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("USERPROFILE").map(std::path::PathBuf::from))
+fn home_dir() -> Option<PathBuf> {
+    // On Windows USERPROFILE is the real profile root. HOME is only set by
+    // third-party shells (Git Bash/MSYS) and may hold a POSIX-style value such as
+    // `/c/Users/me`, so it must never win there.
+    #[cfg(windows)]
+    {
+        std::env::var_os("USERPROFILE")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
+    }
+}
+
+/// Expand a leading `~`, `~/x` or `~\x` against [`home_dir`]. Anything else
+/// (including `~user`) is returned unchanged, as is a path when no home is known.
+pub(crate) fn expand_home(path: &str) -> String {
+    expand_home_with(path, home_dir().as_deref())
+}
+
+/// [`expand_home`] with the home directory injected, so the logic is testable
+/// without touching process environment (which other tests mutate concurrently).
+fn expand_home_with(path: &str, home: Option<&Path>) -> String {
+    let trimmed = path.trim();
+    if !trimmed.starts_with('~') {
+        return path.to_string();
+    }
+    if trimmed.len() > 1 && !matches!(trimmed.as_bytes()[1], b'/' | b'\\') {
+        return path.to_string(); // ~user style: not ours to resolve
+    }
+    let Some(home) = home else {
+        return path.to_string();
+    };
+    let rest = trimmed[1..].trim_start_matches(['/', '\\']);
+    if rest.is_empty() {
+        return home.to_string_lossy().into_owned();
+    }
+    home.join(rest).to_string_lossy().into_owned()
+}
+
+/// `\\?\C:\x` -> `C:\x`, `\\?\UNC\server\share\x` -> `\\server\share\x`.
+/// Windows' canonicalize() hands back verbatim paths; we neither want to pass one
+/// to a subprocess nor to show one to the user (audit B3).
+fn strip_verbatim(path: &Path) -> PathBuf {
+    let raw = path.as_os_str().to_string_lossy();
+    if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        return PathBuf::from(rest);
+    }
+    path.to_path_buf()
+}
+
+/// Absolute, symlink-resolved and verbatim-prefix-free; falls back to the input
+/// when the OS cannot canonicalize it.
+fn simplified_absolute(path: &Path) -> PathBuf {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    strip_verbatim(&canonical)
+}
+
+/// The file names a given path could actually refer to. Pure (PATHEXT is passed
+/// in, `None` meaning "this platform needs no extension guessing") so it is
+/// testable on any OS: Windows' SearchPath/CreateProcess assume `.exe` when the
+/// name carries no extension, honouring PATHEXT otherwise.
+fn executable_candidates(path: &Path, pathext: Option<&str>) -> Vec<PathBuf> {
+    let pathext = match pathext {
+        Some(value) if path.extension().is_none() => value,
+        _ => return vec![path.to_path_buf()],
+    };
+    pathext
+        .split(';')
+        .map(str::trim)
+        .filter(|ext| !ext.is_empty())
+        .map(|ext| path.with_extension(ext.trim_start_matches('.').to_string()))
+        .collect()
+}
+
+/// First candidate that is an existing file, as an absolute path.
+fn existing_file(path: &Path, pathext: Option<&str>) -> Option<PathBuf> {
+    executable_candidates(path, pathext)
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .map(|found| simplified_absolute(&found))
+}
+
+/// Does this name already carry a directory part (`/x`, `.\x`, `C:\x`)?
+fn looks_like_path(name: &str) -> bool {
+    PathBuf::from(name).components().count() > 1
+}
+
+/// Resolve a program name to an existing absolute file, mirroring how the OS
+/// would: a path-shaped name is used as given, a bare name is searched in
+/// `search_paths` in order. Pure (PATH is passed in) so it is testable anywhere.
+fn resolve_program(name: &str, search_paths: &[PathBuf], pathext: Option<&str>) -> Option<PathBuf> {
+    if looks_like_path(name) {
+        return existing_file(Path::new(name), pathext);
+    }
+    search_paths
+        .iter()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .find_map(|dir| existing_file(&dir.join(name), pathext))
+}
+
+/// PATHEXT on Windows (with the customary default), `None` elsewhere.
+fn pathext() -> Option<String> {
+    #[cfg(windows)]
+    {
+        Some(std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into()))
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+fn system_path_dirs() -> Vec<PathBuf> {
+    std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect())
+        .unwrap_or_default()
+}
+
+/// Turn whatever we probed (bare `yt-dlp`, `yt-dlp.exe`, a `/`-styled path) into
+/// the absolute file the OS would actually run. Persisting the bare name is what
+/// made "更新 yt-dlp" impossible and left ffmpeg location to chance (audit R4).
+fn which_binary(name: &str) -> Option<PathBuf> {
+    resolve_program(name, &system_path_dirs(), pathext().as_deref())
+}
+
+/// `winget` unpacks to `%LOCALAPPDATA%\Microsoft\WinGet\Packages\<Id>_<source>\...`.
+/// Collect the directories that could hold `<exe>.exe` for packages whose folder
+/// starts with `prefix`: the package root itself (yt-dlp installs flat) plus any
+/// nested `bin` (Gyan.FFmpeg nests `ffmpeg-7.1-full_build\bin`). Pure (root passed
+/// in) so the scan is covered by tests on every platform.
+#[cfg_attr(not(windows), allow(dead_code))] // wired into windows_tool_dirs()
+fn winget_package_dirs(packages_root: &Path, prefix: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(packages_root) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for entry in entries.flatten() {
+        let package = entry.path();
+        if !entry.file_name().to_string_lossy().starts_with(prefix) {
+            continue;
+        }
+        found.push(package.clone());
+        let Ok(nested) = std::fs::read_dir(&package) else {
+            continue;
+        };
+        for sub in nested.flatten() {
+            let bin = sub.path().join("bin");
+            if bin.is_dir() {
+                found.push(bin);
+            }
+        }
+    }
+    found
+}
+
+/// Where third-party tool installers put their executables on Windows.
+#[cfg(windows)]
+fn windows_tool_dirs() -> Vec<PathBuf> {
+    windows_tool_dirs_from(
+        home_dir().as_deref(),
+        std::env::var_os("LOCALAPPDATA").as_deref().map(Path::new),
+        std::env::var_os("ProgramData").as_deref().map(Path::new),
+    )
+}
+
+/// [`windows_tool_dirs`] with the environment injected, so the whole probe list
+/// is built and unit-tested on any platform (only the env reads are Windows-only).
+#[cfg_attr(not(windows), allow(dead_code))] // wired into windows_tool_dirs()
+fn windows_tool_dirs_from(
+    profile: Option<&Path>,
+    local_app_data: Option<&Path>,
+    program_data: Option<&Path>,
+) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(profile) = profile {
+        dirs.push(profile.join(".local").join("bin")); // uv tool / pipx
+        dirs.push(profile.join("scoop").join("shims"));
+    }
+    if let Some(local) = local_app_data {
+        let local = local.to_path_buf();
+        dirs.push(local.join("Microsoft").join("WinGet").join("Links"));
+        dirs.push(local.join("yt-dlp"));
+        dirs.push(local.join("Programs").join("yt-dlp"));
+        let packages = local.join("Microsoft").join("WinGet").join("Packages");
+        dirs.extend(winget_package_dirs(&packages, "Gyan.yt-dlp"));
+        dirs.extend(winget_package_dirs(&packages, "Gyan.FFmpeg"));
+    }
+    let program_data = program_data
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+    dirs.push(program_data.join("chocolatey").join("bin"));
+    dirs.push(PathBuf::from(r"C:\ffmpeg\bin")); // the common manual install
+    dirs
 }
 
 /// Candidate yt-dlp locations to probe, in priority order.
-fn candidates(home: Option<&std::path::Path>) -> Vec<String> {
-    #[allow(unused_mut)]
+fn candidates(home: Option<&Path>) -> Vec<String> {
     let mut v = vec![DEFAULT_BINARY.to_string()]; // PATH resolution
 
     #[cfg(target_os = "macos")]
@@ -811,29 +1094,55 @@ fn candidates(home: Option<&std::path::Path>) -> Vec<String> {
         v.push("/usr/local/bin/yt-dlp".into()); // Intel Homebrew
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     {
         v.push("yt-dlp.exe".into());
-        if let Some(home) = home {
-            v.push(format!("{}\\AppData\\Local\\yt-dlp\\yt-dlp.exe", home.display()));
+        v.extend(
+            windows_tool_dirs()
+                .into_iter()
+                .map(|dir| dir.join("yt-dlp.exe").to_string_lossy().into_owned()),
+        );
+    }
+
+    // Home-relative candidates are platform-shaped on purpose: the Unix layout
+    // means nothing on Windows, and uv tool drops `yt-dlp.exe` into
+    // %USERPROFILE%\.local\bin there (which `~/.local/bin/yt-dlp` would miss).
+    if let Some(home) = home {
+        #[cfg(windows)]
+        {
+            v.push(home.join(".local").join("bin").join("yt-dlp.exe").to_string_lossy().into_owned());
+        }
+        #[cfg(not(windows))]
+        {
+            let h = home.display().to_string();
+            v.push(format!("{h}/.local/bin/yt-dlp"));
+            v.push(format!("{h}/bin/yt-dlp"));
         }
     }
 
-    if let Some(home) = home {
-        let h = home.display().to_string();
-        v.push(format!("{h}/.local/bin/yt-dlp"));
-        v.push(format!("{h}/bin/yt-dlp"));
-    }
-
-    v.dedup();
+    // De-duplicate without touching probe priority (the old `dedup()` only
+    // removed *adjacent* duplicates, so `yt-dlp` and `yt-dlp.exe` both ran).
+    let mut seen = std::collections::HashSet::new();
+    v.retain(|entry| seen.insert(entry.clone()));
     v
+}
+
+/// The path we hand back to the caller: absolute when we can prove it, otherwise
+/// the candidate that answered (a bare name still runs via PATH).
+fn normalized_program_path(candidate: &str) -> String {
+    which_binary(candidate)
+        .map(|resolved| resolved.to_string_lossy().into_owned())
+        .unwrap_or_else(|| candidate.to_string())
 }
 
 /// Probe common locations and PATH for a working yt-dlp.
 pub fn detect() -> Option<Detection> {
     candidates(home_dir().as_deref())
         .into_iter()
-        .find_map(|c| version(Some(c.clone())).ok().map(|version| Detection { path: c, version }))
+        .find_map(|candidate| {
+            let version = version(Some(candidate.clone())).ok()?;
+            Some(Detection { path: normalized_program_path(&candidate), version })
+        })
 }
 
 /* ------------------------------------------------------------------ */
@@ -861,7 +1170,7 @@ fn ffmpeg_directory(path: &str) -> String {
 }
 
 /// Candidate ffmpeg locations to probe, in priority order.
-fn ffmpeg_candidates(home: Option<&std::path::Path>) -> Vec<String> {
+fn ffmpeg_candidates(home: Option<&Path>) -> Vec<String> {
     let mut v = vec![FFMPEG_BINARY.to_string()]; // PATH resolution
 
     #[cfg(target_os = "macos")]
@@ -870,23 +1179,38 @@ fn ffmpeg_candidates(home: Option<&std::path::Path>) -> Vec<String> {
         v.push("/opt/homebrew/bin/ffmpeg".into()); // Apple Silicon Homebrew
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     {
         v.push("ffmpeg.exe".into());
+        v.extend(
+            windows_tool_dirs()
+                .into_iter()
+                .map(|dir| dir.join("ffmpeg.exe").to_string_lossy().into_owned()),
+        );
     }
 
     if let Some(home) = home {
-        let h = home.display().to_string();
-        v.push(format!("{h}/.local/bin/ffmpeg"));
-        v.push(format!("{h}/bin/ffmpeg"));
+        #[cfg(windows)]
+        {
+            v.push(home.join(".local").join("bin").join("ffmpeg.exe").to_string_lossy().into_owned());
+        }
+        #[cfg(not(windows))]
+        {
+            let h = home.display().to_string();
+            v.push(format!("{h}/.local/bin/ffmpeg"));
+            v.push(format!("{h}/bin/ffmpeg"));
+        }
     }
 
-    v.dedup();
+    let mut seen = std::collections::HashSet::new();
+    v.retain(|entry| seen.insert(entry.clone()));
     v
 }
 
 fn ffmpeg_version(binary: &str) -> Result<String, String> {
-    let output = Command::new(binary)
+    // ffmpeg is not a Python program: never pass --encoding here, only the
+    // shared stdin/console/env setup.
+    let output = command_for(binary)
         .arg("-version")
         .output()
         .map_err(|e| format!("无法启动 ffmpeg（{binary}）: {e}"))?;
@@ -910,7 +1234,9 @@ fn ffmpeg_version(binary: &str) -> Result<String, String> {
 pub fn detect_ffmpeg() -> Option<Detection> {
     ffmpeg_candidates(home_dir().as_deref()).into_iter().find_map(|candidate| {
         let version = ffmpeg_version(&candidate).ok()?;
-        Some(Detection { path: candidate, version })
+        // Normalising to an absolute path is what lets ffmpeg_location() hand
+        // yt-dlp a --ffmpeg-location instead of trusting the child's PATH.
+        Some(Detection { path: normalized_program_path(&candidate), version })
     })
 }
 
@@ -938,6 +1264,10 @@ pub fn check_ffmpeg(path: Option<String>) -> Result<String, String> {
     let trimmed = path.filter(|value| !value.trim().is_empty());
     let binary = match trimmed {
         Some(value) => {
+            // `~` never reaches the filesystem layer: fs::metadata on "~/x" is
+            // CWD-relative and fails. (C1 - the missing `.exe` in the directory
+            // branch below - is deliberately untouched: outside this task.)
+            let value = expand_home(value.trim());
             let meta = std::fs::metadata(&value)
                 .map_err(|error| format!("ffmpeg 路径不可访问（{value}）：{error}"))?;
             if meta.is_dir() {
@@ -1270,7 +1600,11 @@ mod tests {
 
         let validated = validated_cookie_path(Some(file.to_string_lossy().into_owned()))
             .expect("cookie file should validate");
-        assert_eq!(validated, Some(fs::canonicalize(&file).unwrap().to_string_lossy().into_owned()));
+        // What we hand on is canonical *minus* the Windows `\\?\` verbatim prefix.
+        let expected = strip_verbatim(&fs::canonicalize(&file).unwrap())
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(validated, Some(expected));
         assert!(validated_cookie_path(None).unwrap().is_none());
         assert!(validated_cookie_path(Some(dir.to_string_lossy().into_owned())).is_err());
         assert!(validated_cookie_path(Some(dir.join("missing.txt").to_string_lossy().into_owned())).is_err());
@@ -1391,6 +1725,15 @@ mod tests {
 
         let found = detect().expect("should locate the fake yt-dlp on PATH");
         assert_eq!(found.version, "2026.08.24-test");
+        // R4: a PATH hit has to be stored as an absolute path. A bare name in the
+        // settings makes "更新 yt-dlp" impossible (is_absolute() check) and leaves
+        // --ffmpeg-location unset for want of a directory.
+        assert!(
+            PathBuf::from(&found.path).is_absolute(),
+            "detected path must be absolute, got {}",
+            found.path
+        );
+        assert!(found.path.ends_with("yt-dlp"), "detected path must be the binary itself, got {}", found.path);
 
         set_env(&[
             ("PATH", empty_dir.to_string_lossy().as_ref()),
@@ -1408,5 +1751,177 @@ mod tests {
                 None => std::env::remove_var("HOME"),
             }
         }
+    }
+
+    /* ---- R1/R3/R4/B5 regressions (no platform-specific APIs here) ---- */
+
+    fn options_with(path: &str) -> DownloadOptions {
+        DownloadOptions {
+            task_id: "t".into(),
+            url: "https://example.test/v".into(),
+            download_path: path.into(),
+            format: "mp4".into(),
+            quality: "best".into(),
+            filename_template: "%(title)s.%(ext)s".into(),
+            subtitles: false,
+            thumbnail: false,
+            format_id: None,
+            video_only: None,
+            proxy: None,
+            playlist_items: None,
+            rate_limit_ki_b: None,
+            resume: true,
+            remove_partial_files: false,
+            retries: 3,
+            cookie_path: None,
+            ffmpeg_location: None,
+            binary: None,
+        }
+    }
+
+    #[test]
+    fn forces_utf8_encoding_on_every_download() {
+        let args = build_args(&options_with("/tmp/pulse"), None);
+        let index = args.iter().position(|arg| arg == "--encoding").expect("--encoding flag");
+        assert_eq!(args[index + 1], "utf-8");
+    }
+
+    #[test]
+    fn undecodable_pipe_bytes_never_lose_a_line() {
+        // cp936 bytes for 「我们」: valid on the wire, invalid as UTF-8. Reading must
+        // not fail (it used to abort a healthy download on Chinese Windows).
+        let gbk: &[u8] = &[0xCE, 0xD2, 0xC3, 0xC7, b'\n'];
+        let decoded = line_text(gbk);
+        assert!(decoded.chars().any(|c| c == '\u{FFFD}'), "expected replacement chars in {decoded:?}");
+
+        // The same path must still parse a tagged progress line, CRLF included.
+        let line = line_text(b"PULSE| 42.5%|1048576|2097152|1MiB/s|4\r\n");
+        let data = parse_progress(line.trim_end()).expect("progress survives lossy decoding");
+        assert_eq!(data.percent, 42.5);
+        assert_eq!(data.downloaded, Some(1_048_576));
+    }
+
+    #[test]
+    fn expands_only_a_leading_tilde() {
+        let home = PathBuf::from("/home/pulse");
+        assert_eq!(expand_home_with("~", Some(&home)), "/home/pulse");
+        assert_eq!(expand_home_with("~/Downloads/Pulse/", Some(&home)), "/home/pulse/Downloads/Pulse/");
+        assert_eq!(expand_home_with("~\\Downloads\\Pulse", Some(&home)), home.join("Downloads\\Pulse").to_string_lossy());
+        assert_eq!(expand_home_with("~user/x", Some(&home)), "~user/x", "~user must be left alone");
+        assert_eq!(expand_home_with("/usr/local/bin/yt-dlp", Some(&home)), "/usr/local/bin/yt-dlp");
+        assert_eq!(expand_home_with("C:\\Users\\me\\Downloads", Some(&home)), "C:\\Users\\me\\Downloads");
+        assert_eq!(expand_home_with("~/x", None), "~/x", "no home known: hand back the input");
+        assert_eq!(expand_home_with("  ~/x  ", Some(&home)), "/home/pulse/x");
+    }
+
+    #[test]
+    fn download_path_is_expanded_before_reaching_yt_dlp() {
+        let options = options_with("~/Downloads/Pulse/");
+        let expanded = expand_home(&options.download_path);
+        let args = build_args(&options_with(&expanded), None);
+        let template = &args[args.iter().position(|arg| arg == "-o").expect("-o flag") + 1];
+        assert!(!template.starts_with('~'), "yt-dlp must not receive a bare ~: {template}");
+    }
+
+    #[test]
+    fn strips_windows_verbatim_prefixes() {
+        assert_eq!(strip_verbatim(Path::new(r"\\?\C:\Users\me\x")), PathBuf::from(r"C:\Users\me\x"));
+        assert_eq!(strip_verbatim(Path::new(r"\\?\UNC\server\share\x")), PathBuf::from(r"\\server\share\x"));
+        assert_eq!(strip_verbatim(Path::new("/usr/local/bin/yt-dlp")), PathBuf::from("/usr/local/bin/yt-dlp"));
+    }
+
+    #[test]
+    fn assumes_the_exe_extension_only_when_there_is_none() {
+        assert_eq!(
+            executable_candidates(Path::new("yt-dlp"), Some(".COM;.EXE;.BAT;.CMD")),
+            vec![
+                PathBuf::from("yt-dlp.COM"),
+                PathBuf::from("yt-dlp.EXE"),
+                PathBuf::from("yt-dlp.BAT"),
+                PathBuf::from("yt-dlp.CMD"),
+            ]
+        );
+        assert_eq!(
+            executable_candidates(Path::new("yt-dlp.exe"), Some(".EXE")),
+            vec![PathBuf::from("yt-dlp.exe")],
+            "a name that already has an extension must not be rewritten"
+        );
+        assert_eq!(executable_candidates(Path::new("yt-dlp"), None), vec![PathBuf::from("yt-dlp")]);
+    }
+
+    #[test]
+    fn resolves_bare_names_to_absolute_files() {
+        let dir = temp_dir("resolve");
+        let fake = dir.join("fake-tool");
+        fs::write(&fake, "").unwrap();
+
+        let resolved = resolve_program("fake-tool", &[dir.clone()], None).expect("bare name should resolve");
+        assert!(resolved.is_absolute(), "resolved path must be absolute: {resolved:?}");
+        assert_eq!(resolved, simplified_absolute(&fake));
+
+        assert!(resolve_program("definitely-not-here", &[dir.clone()], None).is_none());
+        // A path-shaped name is used as given, never searched.
+        assert_eq!(
+            resolve_program(fake.to_str().unwrap(), &[], None),
+            Some(simplified_absolute(&fake))
+        );
+    }
+
+    #[test]
+    fn finds_winget_package_dirs_including_the_nested_bin() {
+        let root = temp_dir("winget");
+        let flat = root.join("Gyan.yt-dlp_8wekyb3d8bbwe"); // yt-dlp.exe sits right here
+        let nested_bin = root.join("Gyan.FFmpeg_8wekyb3d8bbwe").join("ffmpeg-7.1-full_build").join("bin");
+        let unrelated_bin = root.join("SomeOtherPackage_8wekyb3d8bbwe").join("bin");
+        fs::create_dir_all(&flat).unwrap();
+        fs::create_dir_all(&nested_bin).unwrap();
+        fs::create_dir_all(&unrelated_bin).unwrap();
+
+        assert_eq!(winget_package_dirs(&root, "Gyan.yt-dlp"), vec![flat]);
+        let ffmpeg_dirs = winget_package_dirs(&root, "Gyan.FFmpeg");
+        assert!(ffmpeg_dirs.contains(&nested_bin), "nested bin should be found: {ffmpeg_dirs:?}");
+        assert!(!ffmpeg_dirs.iter().any(|dir| dir.starts_with(&unrelated_bin)), "unrelated packages must be skipped");
+        assert!(winget_package_dirs(&root.join("does-not-exist"), "Gyan").is_empty());
+    }
+
+    #[test]
+    fn windows_probe_dirs_cover_the_common_installers() {
+        let profile = PathBuf::from("P");
+        let local = PathBuf::from("L");
+        let dirs = windows_tool_dirs_from(Some(&profile), Some(&local), None);
+        for expected in [
+            profile.join(".local").join("bin"),               // uv tool / pipx
+            profile.join("scoop").join("shims"),              // scoop
+            local.join("Microsoft").join("WinGet").join("Links"), // winget user scope
+            PathBuf::from(r"C:\ProgramData").join("chocolatey").join("bin"), // choco (fallback)
+            PathBuf::from(r"C:\ffmpeg\bin"),                  // manual ffmpeg install
+        ] {
+            assert!(dirs.contains(&expected), "missing probe dir {expected:?} in {dirs:?}");
+        }
+        // An explicit ProgramData must win over the C:\ fallback.
+        let with_pd = windows_tool_dirs_from(None, None, Some(Path::new("PD")));
+        assert!(with_pd.contains(&PathBuf::from("PD").join("chocolatey").join("bin")), "{with_pd:?}");
+        assert!(!with_pd.iter().any(|dir| dir.to_string_lossy().starts_with(r"C:\ProgramData")), "{with_pd:?}");
+        // Missing env vars must degrade to "fewer probes", never panic.
+        assert!(windows_tool_dirs_from(None, None, None).iter().any(|dir| dir.ends_with("bin")));
+    }
+
+    #[test]
+    fn candidate_list_keeps_priority_and_has_no_probing_duplicates() {
+        let home = PathBuf::from("/home/pulse");
+        let list = candidates(Some(&home));
+        assert_eq!(list.first().map(String::as_str), Some(DEFAULT_BINARY), "PATH stays the first probe");
+        let unique: std::collections::HashSet<&String> = list.iter().collect();
+        assert_eq!(unique.len(), list.len(), "the same path must not be probed twice: {list:?}");
+        assert_eq!(list, candidates(Some(home.as_path())), "candidate order must be deterministic");
+    }
+
+    #[test]
+    fn ffmpeg_probe_never_asks_for_an_encoding_flag() {
+        // ffmpeg rejects --encoding, so the UTF-8 forcing must stay on the yt-dlp
+        // side of things; this guards the split between the two probe helpers.
+        let args = build_args(&options_with("/tmp/pulse"), Some("/tmp/ffmpeg-dir"));
+        assert!(args.iter().any(|arg| arg == "--ffmpeg-location"));
+        assert!(args.windows(2).any(|pair| pair[0] == "--encoding" && pair[1] == "utf-8"));
     }
 }
