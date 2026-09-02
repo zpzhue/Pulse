@@ -17,8 +17,10 @@ import {
   ListFilter,
   Info,
   X,
+  Copy,
 } from "lucide-vue-next";
-import { useDownloads, formatBytes, type DownloadTask } from "../composables/useDownloads";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { useDownloads, formatBytes, formatSpeed, type DownloadTask } from "../composables/useDownloads";
 import { openFolder } from "../services/ytdlp";
 
 type FileType = "video" | "audio";
@@ -33,6 +35,8 @@ interface Row {
   format: string;
   type: FileType;
   time: string;
+  duration: string;
+  speed: string;
   status: "completed" | "failed" | "cancelled" | "interrupted";
   /** Finish/create timestamp (for sorting). */
   ts: number;
@@ -63,6 +67,17 @@ function timeAgo(ts: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
+function formatDuration(createdAt: number, finishedAt?: number): string {
+  if (!createdAt || !finishedAt || finishedAt < createdAt) return "—";
+  const totalSeconds = Math.floor((finishedAt - createdAt) / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}时${minutes}分${seconds}秒`;
+  if (minutes > 0) return `${minutes}分${seconds}秒`;
+  return `${seconds}秒`;
+}
+
 const STATUS_TEXT: Record<Row["status"], string> = {
   completed: "已完成",
   failed: "失败",
@@ -81,6 +96,8 @@ const records = computed<Row[]>(() =>
     format: t.format.toUpperCase(),
     type: t.kind === "audio" ? "audio" : "video",
     time: timeAgo(t.finishedAt ?? t.createdAt),
+    duration: formatDuration(t.createdAt, t.finishedAt),
+    speed: formatSpeed(t.speed),
     status: t.status === "completed"
       ? "completed"
       : t.status === "cancelled"
@@ -97,6 +114,7 @@ const keyword = ref("");
 const filter = ref<"all" | FileType>("all");
 const sortDesc = ref(true);
 const activeMenuId = ref<string | null>(null);
+const menuPosition = ref({ left: 0, top: 0 });
 const detailRow = ref<Row | null>(null);
 const PAGE_SIZE = 20;
 const visibleCount = ref(PAGE_SIZE);
@@ -157,6 +175,46 @@ function showDetails(row: Row) {
 async function openFolderFromMenu(row: Row) {
   activeMenuId.value = null;
   await openRecordFolder(row);
+}
+
+const MENU_WIDTH = 176;
+const MENU_MARGIN = 8;
+
+function setMenuPosition(left: number, top: number) {
+  const maxLeft = Math.max(MENU_MARGIN, window.innerWidth - MENU_WIDTH - MENU_MARGIN);
+  // The menu has four to five actions; reserve enough room before clamping
+  // near the bottom edge without requiring a layout measurement.
+  const estimatedHeight = 240;
+  const maxTop = Math.max(MENU_MARGIN, window.innerHeight - estimatedHeight - MENU_MARGIN);
+  menuPosition.value = {
+    left: Math.min(Math.max(MENU_MARGIN, left), maxLeft),
+    top: Math.min(Math.max(MENU_MARGIN, top), maxTop),
+  };
+}
+
+function toggleMenu(row: Row, event: MouseEvent) {
+  if (activeMenuId.value === row.id) {
+    activeMenuId.value = null;
+    return;
+  }
+
+  const target = event.currentTarget;
+  if (target instanceof HTMLElement && event.type === "click") {
+    const rect = target.getBoundingClientRect();
+    setMenuPosition(rect.right - MENU_WIDTH, rect.bottom + 6);
+  } else {
+    setMenuPosition(event.clientX, event.clientY);
+  }
+  activeMenuId.value = row.id;
+}
+
+async function copySourceLink(row: Row) {
+  try {
+    await writeText(row.task.url);
+  } catch {
+    /* Clipboard unavailable — keep the menu usable without a toast. */
+  }
+  activeMenuId.value = null;
 }
 
 function statusIcon(status: Row["status"]) {
@@ -243,11 +301,13 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
 
     <section class="overflow-hidden rounded-lg border border-border bg-card" @click="activeMenuId = null">
       <div class="overflow-x-auto">
-        <div class="min-w-[840px]">
+        <div class="min-w-[1120px]">
           <div class="hd-grid hd-head">
             <span>下载内容</span>
             <span>来源</span>
             <span>文件</span>
+            <span>耗时</span>
+            <span>速度</span>
             <span>完成时间</span>
             <span>状态</span>
             <span class="text-right">操作</span>
@@ -262,7 +322,12 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
           </div>
 
           <div v-else>
-            <article v-for="row in paged" :key="row.id" class="hd-grid hd-row">
+            <article
+              v-for="row in paged"
+              :key="row.id"
+              class="hd-grid hd-row"
+              @contextmenu.prevent.stop="toggleMenu(row, $event)"
+            >
               <div class="flex min-w-0 items-center gap-3">
                 <div class="hd-media-icon shrink-0" :class="row.type">
                   <Play v-if="row.icon === 'play'" class="h-4 w-4" />
@@ -274,6 +339,8 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
               </div>
               <span class="hd-source" :title="row.source">{{ row.source }}</span>
               <span class="font-mono text-[12px] text-muted-foreground tabular-nums">{{ row.size }} <span class="text-border">/</span> {{ row.format }}</span>
+              <span class="font-mono text-[12px] text-muted-foreground tabular-nums">{{ row.duration }}</span>
+              <span class="font-mono text-[12px] text-muted-foreground tabular-nums">{{ row.speed }}</span>
               <span class="whitespace-nowrap text-[12px] text-muted-foreground">{{ row.time }}</span>
               <span class="hd-status" :class="row.status">
                 <component :is="statusIcon(row.status)" class="h-3.5 w-3.5" />
@@ -295,20 +362,29 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
                   class="hd-icon-btn"
                   :aria-label="activeMenuId === row.id ? '关闭更多操作' : '更多操作'"
                   title="更多操作"
-                  @click.stop="activeMenuId = activeMenuId === row.id ? null : row.id"
+                  @click.stop="toggleMenu(row, $event)"
                 >
                   <MoreHorizontal class="h-4 w-4" />
                 </button>
-                <div v-if="activeMenuId === row.id" class="hd-menu" @click.stop>
+                <div
+                  v-if="activeMenuId === row.id"
+                  class="hd-menu"
+                  :style="{ left: `${menuPosition.left}px`, top: `${menuPosition.top}px` }"
+                  @click.stop
+                >
                   <button type="button" @click="showDetails(row)">
                     <Info class="h-4 w-4" />
                     查看详情
                   </button>
-                  <button type="button" :disabled="!row.downloadPath" @click="openFolderFromMenu(row)">
+                  <button v-if="row.status === 'completed'" type="button" :disabled="!row.downloadPath" @click="openFolderFromMenu(row)">
                     <FolderOpen class="h-4 w-4" />
                     {{ row.downloadPath ? '打开所在文件夹' : '下载目录不可用' }}
                   </button>
-                  <button v-if="row.status === 'failed'" type="button" @click="restart(row)">
+                  <button type="button" @click="copySourceLink(row)">
+                    <Copy class="h-4 w-4" />
+                    复制来源链接
+                  </button>
+                  <button v-if="row.status === 'failed' || row.status === 'interrupted'" type="button" @click="restart(row)">
                     <Download class="h-4 w-4" />
                     重新下载
                   </button>
@@ -386,7 +462,7 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
 <style scoped>
 .hd-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 2.2fr) minmax(104px, 0.75fr) minmax(120px, 0.8fr) minmax(104px, 0.8fr) minmax(88px, 0.65fr) 84px;
+  grid-template-columns: minmax(260px, 2.1fr) minmax(104px, 0.75fr) minmax(120px, 0.8fr) minmax(90px, 0.65fr) minmax(90px, 0.65fr) minmax(104px, 0.8fr) minmax(88px, 0.65fr) 84px;
   column-gap: 20px;
   align-items: center;
 }
@@ -506,10 +582,8 @@ const totalFormat = computed(() => formatBytes(history.value.reduce((s, t) => s 
 }
 
 .hd-menu {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + 6px);
-  right: 0;
+  position: fixed;
+  z-index: 50;
   width: 176px;
   overflow: hidden;
   border: 1px solid var(--ydl-border);
