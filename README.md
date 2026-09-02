@@ -169,6 +169,8 @@ cargo test
 bun run tauri build
 ```
 
+Windows 安装版仅生成 MSI；发布工作流会另外生成不含安装器的便携版 ZIP。
+
 ## 项目结构
 
 ```text
