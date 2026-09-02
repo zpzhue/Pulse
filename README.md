@@ -1,112 +1,179 @@
 # Pulse
 
-一个基于 [Tauri v2](https://tauri.app) + Vue 3 + TypeScript 的桌面下载管理应用（macOS）。
+Pulse 是一款支持 macOS 和 Windows 的桌面下载管理器，使用 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 解析和下载视频、音频及播放列表内容。
 
-## 技术栈
+应用基于 Tauri v2 与 Vue 3 构建。`yt-dlp`、`ffmpeg` 和 `ffprobe` 由用户自行安装，不会打进安装包或便携版。
 
-- **桌面框架**：Tauri v2（Rust）
-- **前端**：Vue 3 `<script setup>` + TypeScript + Vite
-- **样式**：Tailwind CSS v4
-- **路由**：Vue Router
-- **图标**：lucide-vue-next
-- **包管理**：bun
+## 功能概览
 
-## 启动
+- 解析单视频与播放列表，支持播放列表多选后逐条入队。
+- 单视频可选择具体视频流；纯视频流会自动搭配最佳音频。
+- 支持视频、音频、字幕和缩略图下载。
+- 支持并发队列、限速、重试、HTTP 代理和 Cookie 文件。
+- 实时显示下载进度、速度、ETA 和播放列表进度。
+- 自动探测 `yt-dlp`、`ffmpeg` 和 `ffprobe`，也可手动指定绝对路径。
+- 使用 SQLite 保存设置、活动任务和下载历史。
+- 支持基于 `.part` 文件的断点续传。
+- 已成功下载的同一链接不会重复入队，并显示“已下载过”。
+- 支持浅色、深色模式和三组强调色。
+- Windows 使用自绘标题栏，并通过单实例机制避免重复启动造成数据覆盖。
+
+## 使用前准备
+
+Pulse 运行时需要：
+
+- [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
+- [`ffmpeg`](https://ffmpeg.org/) 与 `ffprobe`
+
+这些工具可以放入系统 `PATH`，也可以在 Pulse 的“设置”页面填写绝对路径。
+
+### macOS
+
+可以通过 `uv` 安装 `yt-dlp`：
 
 ```bash
-# 开发（需先配置好 mise 环境）
+uv tool install yt-dlp
+```
+
+常见工具路径：
+
+```text
+~/.local/bin/yt-dlp
+~/.local/bin/ffmpeg
+~/.local/bin/ffprobe
+```
+
+从 Finder 启动的桌面应用不一定继承终端的完整 `PATH`。如果自动探测没有找到工具，请在设置页填写绝对路径。
+
+### Windows
+
+请准备以下文件：
+
+```text
+yt-dlp.exe
+ffmpeg.exe
+ffprobe.exe
+```
+
+然后选择一种配置方式：
+
+1. 将它们所在的目录加入用户或系统 `PATH`。
+2. 在 Pulse 设置页填写工具的绝对路径，例如 `C:\tools\yt-dlp.exe`。
+
+Windows 安装包和便携版不包含这些文件。首次启动后可通过顶部提示或设置页完成配置。
+
+## 基本使用
+
+1. 打开“新建下载”，粘贴视频或播放列表链接。
+2. 点击解析，选择需要下载的条目和格式。
+3. 加入下载队列，在主页查看实时进度、速度和剩余时间。
+4. 在“历史记录”中查看结果、删除记录或重新下载。
+
+## 下载与恢复行为
+
+### 断点续传
+
+断点续传默认开启，对应 yt-dlp 的 `--continue`：
+
+- 下载被取消、应用退出或系统中断后，已写入的 `.part` 文件会保留。
+- 应用下次启动时，原活动任务会转为“已中断”历史记录，不会自动启动。
+- 在历史记录中点击“重新下载”，yt-dlp 会利用已有 `.part` 文件继续传输。
+
+如果开启“清理未完成文件”，Pulse 会使用 `--no-part`，不再保留断点文件，因此无法继续之前的进度。
+
+### 重复下载检查
+
+新建任务前会检查本地历史：
+
+- 同一链接已有成功记录时，不创建新任务，并显示“已下载过”。
+- 分享链接中的 `si`、`feature`、`utm_*` 等跟踪参数不影响判定。
+- `v`、`list`、`p`、`t` 等内容定位参数会保留，不同参数仍视为不同任务。
+- 删除对应历史记录后，该链接不会再被判定为已下载。
+- 历史页的“重新下载”代表明确的重下操作，不受重复检查限制。
+
+### 取消与退出
+
+- 取消任务会终止 yt-dlp 及其子进程树。
+- Windows 使用 `taskkill /T /F`，避免 ffmpeg 等子进程残留。
+- 应用异常退出后，未完成任务会转入历史记录并标记为“已中断”。
+
+## 当前限制
+
+Pulse 暂不提供下载过程中的“暂停/恢复”按钮。
+
+目前可使用“取消任务 → 历史记录 → 重新下载”代替。在保留 `.part` 文件且启用断点续传时，重新下载会从已有进度继续，而不是从零开始。
+
+真正的跨平台暂停需要同时挂起 yt-dlp 和 ffmpeg 的完整进程树；Unix 与 Windows 的进程控制机制不同，在能够可靠实现和测试之前，界面不会展示无法保证行为正确的暂停按钮。
+
+## 数据存储
+
+设置、下载历史和活动任务保存在 SQLite 数据库 `pulse.db` 中：
+
+- 普通安装版使用 Tauri 的应用数据目录。
+- Windows 便携版使用可执行文件所在目录。
+- 数据库启用 WAL 模式。
+- 下载历史默认保留最近 200 条任务。
+
+## 开发
+
+### 技术栈
+
+- Tauri v2 / Rust
+- Vue 3 / TypeScript / Vite
+- Tailwind CSS v4
+- Vue Router
+- Lucide
+- Bun
+- SQLite（rusqlite）
+- yt-dlp / ffmpeg
+
+### 开发环境
+
+除运行时所需的 yt-dlp 和 ffmpeg 外，还需要：
+
+- [Bun](https://bun.sh/)
+- Rust stable toolchain
+- macOS：Xcode Command Line Tools
+- Windows：Microsoft C++ Build Tools 与 WebView2 Runtime
+
+安装前端依赖：
+
+```bash
+bun install
+```
+
+启动桌面开发环境：
+
+```bash
 bun run tauri dev
 ```
 
-macOS 下 start 命令里需要把 `~/.local/bin`、`~/.cargo/bin`、`~/.local/share/mise/shims` 加到 PATH，才能正确找到 mise 管理的工具。
+运行前端测试和构建：
 
-## 设计稿来源
+```bash
+bun run test
+bun run build
+```
 
-UI 以 `ytdlp-gui/` 目录下的设计稿为准（各独立页面 html）。注意其中 `project-shell.html` 是**过期的共享片段**（仍带旧的 5 菜单 + 底部用户栏），实际实现以各独立页面文件为准。
+运行 Rust 检查和测试：
 
-## 已实现内容（阶段 1：应用外壳）
+```bash
+cd src-tauri
+cargo check
+cargo test
+```
 
-### 工程初始化
-- Tauri v2 + Vue3(TS) + Vite + Tailwind v4 工程脚手架，bun 管理依赖
+构建桌面安装包：
 
-### 设计令牌
-- `src/styles/design-tokens.css`：迁移设计稿的三套主题色阶（青色 / 紫色 / 绿色）+ 深浅色语义变量
-- 映射进 Tailwind（可用 `bg-background`、`text-foreground`、`text-primary` 等语义类）
+```bash
+bun run tauri build
+```
 
-### 应用外壳
-- `src/components/layout/AppSidebar.vue`：侧边栏，包含 Logo + 导航（主页 / 新建下载 / 历史记录 / 设置 共 4 项），已移除设计稿中删除的底部"本地用户"栏
-- `src/components/layout/AppTopbar.vue`：顶栏，含搜索、主题色点切换（青/紫/绿）、深浅模式切换
+## 项目结构
 
-### 路由
-- 主页 / 新建下载 / 历史记录 / 设置 4 个页面（当前为占位）
-
-### 无边框窗口（macOS）
-- `src-tauri/tauri.conf.json`：`titleBarStyle: Overlay` + `hiddenTitle` + `macOSPrivateApi`
-- 顶栏 / 侧边栏 Logo 区设为拖拽区，配合 `core:window:allow-start-dragging` 权限实现窗口拖动
-- `src-tauri/capabilities/default.json`：补充了拖拽所需权限
-- macOS 左上角红绿灯与布局的冲突已处理（侧边栏顶部预留安全区）
-
-### 设置持久化
-- 主题色 / 深浅模式通过 localStorage 持久化，重启应用后保留
-
-### 主页 Dashboard（阶段 2）
-- `src/views/DashboardView.vue`：4 统计卡（正在下载 / 已完成 / 下载速度 / 磁盘占用）+ 进行中下载列表（进度条、速度、ETA、暂停/取消）
-- 数据为前端模拟态，结构为后续接入真实下载引擎预留
-
-### 新建下载页（阶段 3）
-- `src/views/NewDownloadView.vue`：URL 输入与智能识别（单视频 / 播放列表），单视频模式（格式 / 画质 / 保存路径 / 高级选项）
-- 播放列表模式：视频列表 + 全选 / 取消 + 批量操作工具栏（清晰度、格式、导出、批量下载）
-- 通用快速选项（保存路径 + 字幕 / 缩略图开关）
-
-### 历史记录页（阶段 4）
-- `src/views/HistoryView.vue`：搜索 + 类型过滤（全部 / 视频 / 音频 / 字幕）、按时间排序
-- 历史记录表格（名称 / 来源 / 文件信息 / 时间 / 状态 / 操作）+ 加载更多 + 统计页脚
-- 数据为前端模拟态
-
-### 设置页（阶段 5）
-- `src/views/SettingsView.vue`：左侧分类导航 + 5 个面板
-  - 外观：主题色（青 / 紫 / 绿）、深色模式、界面密度
-  - 下载设置：默认质量 / 格式、下载路径、文件名模板、同时下载数
-  - yt-dlp 配置：路径、自动更新、HTTP 代理、Cookie 配置
-  - 网络：限速、断点续传、完整性校验、重试次数
-  - 关于：应用 / 引擎版本信息
-- 外观面板与全局 `useTheme`（主题色 / 深浅模式）双向联动并持久化
-
-## 待实现（后续阶段）
-- 阶段 7：状态 / 进度持久化 + 首页联动真实数据
-
-## 阶段 6：接入真实下载引擎（yt-dlp）
-### 后端（Rust / Tauri Command）
-- `src-tauri/src/ytdlp.rs`：yt-dlp 引擎封装，通过子进程调用 CLI
-  - `resolve_url`：`--dump-single-json --flat-playlist` 拉取元数据（标题 / 播放列表条目 / 作者），识别单视频或播放列表
-  - `start_download`：按格式 / 画质 / 路径 / 字幕 / 缩略图 / 代理构造参数，`--progress-template` 输出机器可读进度，经 `Channel` 实时推送事件（started / progress / finished / error）
-  - `ytdlp_version`：校验二进制可达性并返回版本（供设置页“测试连接”）
-- `src-tauri/src/lib.rs`：注册以上 `#[tauri::command]`
-
-### 前端
-- `src/services/ytdlp.ts`：封装 `invoke` 调用 + `Channel` 事件解析，持久化 yt-dlp 二进制路径（localStorage）
-- `NewDownloadView.vue`：接入真实解析（URL → 元数据填充播放列表 / 单视频），“开始下载 / 批量下载”触发真实下载任务并展示状态
-- `SettingsView.vue`：yt-dlp 面板“测试连接”校验路径并持久化
-
-### 说明
-- 进度流式上报 → 首页 Dashboard 联动真实数据属于阶段 7
-- 需要系统已安装 `yt-dlp`（默认 `yt-dlp`，可在设置页配置路径）
-
-## 阶段 8：yt-dlp 自动探测 + 缺失引导
-- 启动时自动探测 yt-dlp（PATH + 常见安装目录：Homebrew、`~/.local/bin`、`~/bin` 等）
-- 检测到 → 自动使用可执行路径并持久化（`pulse.ytdlp.binary`）
-- 未检测到 / 路径无效 → 顶部警告横幅，提供「下载 yt-dlp」（打开官方 release 页）与「设置路径」（弹窗手动指定，标记为手动来源）两种引导
-- 用户手动设置的路径（顶部横幅或设置页）以 `pulse.ytdlp.source = manual` 标记，后续启动优先校验该路径，而非重新探测
-
-## 阶段 7：状态 / 进度持久化 + 首页联动真实数据
-### 全局下载状态（Store）
-- `src/composables/useDownloads.ts`：单例组合式状态，统一管理下载任务生命周期与真实子进程
-  - `start()`：入队真实下载，标题自动解析，进度/速度/ETA 实时写入任务
-  - `active`：进行中任务（内存态，随真实进度更新）
-  - `history`：已完成 / 失败任务（深度 `watch` 自动持久化到 localStorage，保留最近 200 条）
-  - 聚合统计：`activeCount` / `completedCount` / `totalSpeed` / `diskUsage` 及格式化工具
-
-### 页面联动
-- `DashboardView.vue`：去掉模拟数据，改为渲染真实 `active` 任务列表 + 动态统计卡（进行中数 / 完成数 / 实时总速度 / 磁盘占用），空态引导新建下载
-- `HistoryView.vue`：改为读取持久化的 `history`，展示完成 / 失败记录，支持搜索、类型过滤、删除
-- `NewDownloadView.vue`：下载按钮改走 Store 入队，反馈“已加入下载队列”，任务在后台异步下载，首页实时可见
+```text
+src/                    Vue 前端、页面、状态与服务封装
+src-tauri/              Tauri/Rust 后端、yt-dlp 调用与 SQLite 存储
+src-tauri/capabilities/ Tauri 权限配置
+.github/workflows/      发布构建工作流
+```
