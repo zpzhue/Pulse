@@ -2,10 +2,7 @@ name: Build Desktop Binaries
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,11 +16,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS Intel
-            os: macos-13
-            target: x86_64-apple-darwin
-            artifact: Pulse-macos-x86_64
-            bundle-path: src-tauri/target/x86_64-apple-darwin/release/bundle
           - name: macOS Apple Silicon
             os: macos-14
             target: aarch64-apple-darwin
@@ -55,6 +47,22 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         with:
           args: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+
+      - name: Package portable Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path portable/Pulse | Out-Null
+          Copy-Item src-tauri/target/release/pulse-shell.exe portable/Pulse/Pulse.exe
+          Compress-Archive -Path portable/Pulse/* -DestinationPath Pulse-windows-x86_64-portable.zip
+
+      - name: Upload portable Windows app
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse-windows-x86_64-portable
+          if-no-files-found: error
+          path: Pulse-windows-x86_64-portable.zip
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
