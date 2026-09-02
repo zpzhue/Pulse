@@ -44,3 +44,29 @@
     height: 100%;
   }
 }
+
+/* Theme-aware thin scrollbars. WebView2 (Windows) otherwise paints an opaque
+   ~17px light-grey bar that squeezes the layout and clashes with the dark
+   theme; WKWebView honours these too. Covers the standards-based scrollbar-*
+   properties and the WebKit pseudo-elements. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ydl-surface-3) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ydl-surface-3);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ydl-muted-foreground);
+  background-clip: content-box;
+}

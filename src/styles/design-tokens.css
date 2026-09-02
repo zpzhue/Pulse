@@ -7,6 +7,9 @@
 
 /* ---- Base :root (Light baseline + Cyan brand) ---- */
 :root {
+  /* 表单控件/下拉弹层跟随亮色（Windows 原生渲染依赖此声明） */
+  color-scheme: light;
+
   /* Brand Primary (single hue - cyan) */
   --ydl-primary-hue: 188;
   --ydl-primary-sat: 100%;
@@ -96,6 +99,7 @@
 
 /* ---- Dark Mode (primary theme) ---- */
 .dark {
+  color-scheme: dark;
   --ydl-background: #0b0b14;
   --ydl-foreground: #e8eaf6;
   --ydl-card: #13131e;

@@ -355,7 +355,7 @@ async function confirmAndUpdate() {
             <input
               v-model="downloadSettings.ffmpegPath"
               type="text"
-              placeholder="留空自动探测（PATH / Homebrew / ~/.local/bin）"
+              placeholder="留空自动探测（PATH 与各包管理器常见安装目录）"
               class="st-input flex-1 font-mono"
             />
             <button type="button" class="st-btn-browse" @click="browseFfmpegBinary">

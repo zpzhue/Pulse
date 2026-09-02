@@ -16,8 +16,9 @@
         "title": "Pulse",
         "width": 1440,
         "height": 900,
-        "minWidth": 1024,
-        "minHeight": 700,
+        "minWidth": 900,
+        "minHeight": 620,
+        "preventOverflow": true,
         "backgroundColor": "#0b0b14",
         "titleBarStyle": "Overlay",
         "hiddenTitle": true

@@ -29,6 +29,7 @@ parking_lot = "0.12"
 rusqlite = { version = "0.32", features = ["bundled"] }
 tauri-plugin-dialog = "2.7.3"
 tauri-plugin-clipboard-manager = "2.3.3"
+tauri-plugin-single-instance = "2"
 
 [target."cfg(unix)".dependencies]
 libc = "0.2.189"

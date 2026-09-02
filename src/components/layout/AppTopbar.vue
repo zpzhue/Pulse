@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { Search, Bell, Sun, Moon } from "lucide-vue-next";
+import { Search, Bell, Sun, Moon, Minus, Square, X } from "lucide-vue-next";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTheme } from "../../composables/useTheme";
+import { isWindowsPlatform } from "../../services/paths";
 
 const route = useRoute();
 const { isDark, accents, accent, toggleDark, setAccent } = useTheme();
 
 const pageTitle = computed(() => (route.meta.title as string) ?? "Pulse");
+
+// Windows 下原生标题栏已被关闭（见 main.ts），由这三个按钮接管窗口控制。
+const windows = isWindowsPlatform();
+const appWindow = getCurrentWindow();
 </script>
 
 <template>
@@ -61,6 +67,31 @@ const pageTitle = computed(() => (route.meta.title as string) ?? "Pulse");
         <Sun v-if="isDark" class="w-4 h-4" />
         <Moon v-else class="w-4 h-4" />
       </button>
+
+      <!-- Windows 自绘窗口控制（原生标题栏已关闭）；macOS 用红绿灯，隐藏 -->
+      <div v-if="windows" class="flex items-center gap-1 ml-2 -mr-2">
+        <button
+          class="w-8 h-7 rounded flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
+          aria-label="最小化"
+          @click="appWindow.minimize()"
+        >
+          <Minus class="w-4 h-4" />
+        </button>
+        <button
+          class="w-8 h-7 rounded flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
+          aria-label="最大化"
+          @click="appWindow.toggleMaximize()"
+        >
+          <Square class="w-3.5 h-3.5" />
+        </button>
+        <button
+          class="w-8 h-7 rounded flex items-center justify-center text-muted-foreground hover:bg-[#e11d48] hover:text-white transition-colors"
+          aria-label="关闭"
+          @click="appWindow.close()"
+        >
+          <X class="w-4 h-4" />
+        </button>
+      </div>
     </div>
   </header>
 </template>

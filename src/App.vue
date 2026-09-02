@@ -94,7 +94,7 @@ onMounted(() => {
           <input
             v-model="customPath"
             type="text"
-            placeholder="如 /usr/local/bin/yt-dlp 或 yt-dlp"
+            placeholder="如 /usr/local/bin/yt-dlp（Windows：C:\tools\yt-dlp.exe）"
             class="ytdlp-input mt-3"
             @keyup.enter="applyPath"
           />

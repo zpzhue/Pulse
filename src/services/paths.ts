@@ -112,3 +112,12 @@ export function normalizeSettingPath(value: unknown): string {
 export function effectiveDownloadPath(value?: string | null): string {
   return normalizeStoredPath(value) || cachedDefault;
 }
+
+/**
+ * 当前是否为 Windows。复用平台分隔符判定（`\` → Windows），与非 Tauri
+ * 环境（vitest/jsdom）下 separator() 退回 `/`（恒 false，测试渲染 macOS
+ * 布局分支）的行为一致。
+ */
+export function isWindowsPlatform(): boolean {
+  return separator() === "\\";
+}

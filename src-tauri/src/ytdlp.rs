@@ -1287,6 +1287,7 @@ mod tests {
     //! executable is injected onto PATH to exercise the real discovery path.
     use super::*;
     use std::fs;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
@@ -1297,6 +1298,7 @@ mod tests {
         dir
     }
 
+    #[cfg(unix)]
     fn write_executable(dir: &PathBuf, name: &str, script: &str) -> PathBuf {
         let bin = dir.join(name);
         fs::write(&bin, script).unwrap();
@@ -1306,10 +1308,12 @@ mod tests {
         bin
     }
 
+    #[cfg(unix)]
     fn write_fake_ytdlp(dir: &PathBuf) -> PathBuf {
         write_executable(dir, "yt-dlp", "#!/bin/sh\nprintf '2026.08.24-test'\n")
     }
 
+    #[allow(dead_code)]
     fn set_env(vars: &[(&str, &str)]) {
         for (k, v) in vars {
             unsafe { std::env::set_var(k, v) };
@@ -1569,6 +1573,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn rejects_non_ytdlp_update_target_before_running_update() {
         let dir = temp_dir("not-ytdlp");
         let binary = write_executable(&dir, "tool", "#!/bin/sh\necho 'not a version'; exit 0\n");
@@ -1579,6 +1584,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn reports_update_failure_after_verifying_binary() {
         let dir = temp_dir("update-failure");
         let binary = write_executable(
@@ -1711,6 +1717,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn detects_path_then_reports_missing() {
         let found_dir = temp_dir("found");
         let empty_dir = temp_dir("empty");

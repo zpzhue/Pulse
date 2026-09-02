@@ -179,6 +179,14 @@ pub fn run() {
             Ok(())
         })
         .manage(DownloadManager::new())
+        // 双开会各自全表回写 SQLite 互相覆盖历史；第二实例直接唤起已有窗口。
+        // 官方要求本插件在 Windows 上必须是第一个注册的插件。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
